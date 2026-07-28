@@ -1,12 +1,9 @@
 const mongoose = require("mongoose");
 const { VALID_SITES } = require("../data/siteConfig");
+const { MASTER_TYPES } = require("../data/masterFileRegistry");
 
 const VALID_MASTER_SITES = VALID_SITES;
-
-const VALID_MASTER_TYPES = [
-  "finishedProduct",
-  "rawMaterial",
-];
+const VALID_MASTER_TYPES = Object.values(MASTER_TYPES);
 
 const masterFileHeaderSchema = new mongoose.Schema(
   {
@@ -98,7 +95,7 @@ const masterFileSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
-      default: 8,
+      default: 1,
     },
 
     partNumberColumn: {

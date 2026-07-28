@@ -182,8 +182,9 @@ const showMessage = (
 
 const formatMasterType = (masterType) => {
   const typeLabels = {
-    finishedProduct: "Finished Goods",
-    rawMaterial: "Raw Material",
+    finishedProduct: "Finished Product (FS E)",
+    rawMaterial: "Raw Material (RM E)",
+    billOfMaterials: "Bill of Materials (BOM E)",
   };
 
   return (

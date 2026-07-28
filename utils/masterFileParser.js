@@ -307,7 +307,13 @@ const buildHeaders = (
       firstDataRow,
     );
 
-    if (!originalHeader && !hasData) {
+    if (
+      !originalHeader &&
+      (
+        config.ignoreUnnamedHeaders ||
+        !hasData
+      )
+    ) {
       continue;
     }
 
@@ -887,6 +893,30 @@ const transformValue = (
     case "fdaAffirmation":
       return toCleanText(value);
 
+    case "date": {
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime())
+          ? undefined
+          : value;
+      }
+
+      const parsedDate = new Date(value);
+
+      if (Number.isNaN(parsedDate.getTime())) {
+        addRecordWarning(
+          warnings,
+          "INVALID_DATE",
+          `La fecha de "${fieldName}" no es válida.`,
+          fieldName,
+          value,
+        );
+
+        return undefined;
+      }
+
+      return parsedDate;
+    }
+
     default:
       addRecordWarning(
         warnings,
@@ -1212,7 +1242,7 @@ const parseMasterFileBuffer = async (
   if (!detectedMasterType) {
     throw createParserError(
       "MASTER_TYPE_NOT_DETECTED",
-      "No se encontró una hoja FG_Catalog o RawMatlCat.",
+      "No se encontró una hoja FS E, RM E o BOM E.",
     );
   }
 
@@ -1316,10 +1346,12 @@ const parseMasterFileBuffer = async (
     );
   }
 
-  applyDuplicateWarnings(
-    records,
-    fileWarnings,
-  );
+  if (!config.allowDuplicatePartNumbers) {
+    applyDuplicateWarnings(
+      records,
+      fileWarnings,
+    );
+  }
 
   const publicHeaders = headers.map(
     ({

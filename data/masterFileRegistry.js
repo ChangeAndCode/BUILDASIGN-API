@@ -3,6 +3,7 @@
 const MASTER_TYPES = Object.freeze({
   FINISHED_PRODUCT: "finishedProduct",
   RAW_MATERIAL: "rawMaterial",
+  BILL_OF_MATERIALS: "billOfMaterials",
 });
 
 /**
@@ -53,9 +54,25 @@ const FINISHED_PRODUCT_HEADER_RULES = Object.freeze({
     sourceUnit: "g",
   },
 
+  unitweightlb: {
+    target: "unitNetWeight",
+    transform: "pounds",
+    sourceUnit: "lb",
+  },
+
   materialcostusd: {
     target: "materialCostUsd",
     transform: "number",
+  },
+
+  dutiablevalue: {
+    target: "dutiableValueUsd",
+    transform: "number",
+  },
+
+  filler: {
+    target: "filler",
+    transform: "text",
   },
 
   addedvalueusd: {
@@ -85,6 +102,11 @@ const FINISHED_PRODUCT_HEADER_RULES = Object.freeze({
 
   usimportationhtscode: {
     target: "importationHtsCode",
+    transform: "hts",
+  },
+
+  usaexportationcode: {
+    target: "exportationHtsCode",
     transform: "hts",
   },
 
@@ -301,12 +323,23 @@ const RAW_MATERIAL_HEADER_RULES = Object.freeze({
     sourceUnit: "lb",
   },
 
+  unitweightlb: {
+    target: "unitNetWeight",
+    transform: "pounds",
+    sourceUnit: "lb",
+  },
+
   unitvalueusd: {
     target: "unitCostUsd",
     transform: "number",
   },
 
   unitcostusd: {
+    target: "unitCostUsd",
+    transform: "number",
+  },
+
+  unitcostuds: {
     target: "unitCostUsd",
     transform: "number",
   },
@@ -336,9 +369,44 @@ const RAW_MATERIAL_HEADER_RULES = Object.freeze({
     transform: "hts",
   },
 
+  importationhtscode: {
+    target: "importationHtsCode",
+    transform: "hts",
+  },
+
+  exportationhtscode: {
+    target: "exportationHtsCode",
+    transform: "hts",
+  },
+
   eccn: {
     target: "eccn",
     transform: "uppercaseText",
+  },
+
+  filler: {
+    target: "filler",
+    transform: "text",
+  },
+
+  licensenumberlcn: {
+    target: "licenseNumber",
+    transform: "text",
+  },
+
+  licenseexception: {
+    target: "licenseException",
+    transform: "text",
+  },
+
+  licenseexpirationdate: {
+    target: "licenseExpirationDate",
+    transform: "date",
+  },
+
+  usmlitar: {
+    target: "usmlItar",
+    transform: "text",
   },
 
   descriptionforcustomspurposesenglish: {
@@ -404,11 +472,38 @@ const RAW_MATERIAL_HEADER_RULES = Object.freeze({
 });
 
 /**
- * Configuración de los dos tipos de archivos madre.
+ * Configuración de los tres tipos de archivos madre.
  *
  * No se configura por nombre de archivo porque el usuario puede
  * renombrarlo. Se detecta usando la hoja y los encabezados.
  */
+const BILL_OF_MATERIALS_HEADER_RULES = Object.freeze({
+  finishedgoodpartnumber: {
+    target: "partNumber",
+    transform: "partNumber",
+  },
+
+  componentpartnumber: {
+    target: "componentPartNumber",
+    transform: "partNumber",
+  },
+
+  type: {
+    target: "componentType",
+    transform: "uppercaseText",
+  },
+
+  quantity: {
+    target: "quantity",
+    transform: "number",
+  },
+
+  unitofmeasure: {
+    target: "unitOfMeasure",
+    transform: "uom",
+  },
+});
+
 const MASTER_FILE_REGISTRY = Object.freeze({
   [MASTER_TYPES.FINISHED_PRODUCT]: Object.freeze({
     masterType: MASTER_TYPES.FINISHED_PRODUCT,
@@ -416,7 +511,7 @@ const MASTER_FILE_REGISTRY = Object.freeze({
     displayName: "Finished Goods",
 
     sheetNames: [
-      "FG_Catalog",
+      "FS E",
     ],
 
     ignoredSheetNames: [
@@ -424,7 +519,9 @@ const MASTER_FILE_REGISTRY = Object.freeze({
       "keys",
     ],
 
-    headerRow: 8,
+    headerRow: 1,
+
+    ignoreUnnamedHeaders: true,
 
     partNumberHeaderKeys: [
       "partnumber",
@@ -449,7 +546,7 @@ const MASTER_FILE_REGISTRY = Object.freeze({
     displayName: "Raw Material",
 
     sheetNames: [
-      "RawMatlCat",
+      "RM E",
     ],
 
     ignoredSheetNames: [
@@ -457,7 +554,9 @@ const MASTER_FILE_REGISTRY = Object.freeze({
       "keys",
     ],
 
-    headerRow: 8,
+    headerRow: 1,
+
+    ignoreUnnamedHeaders: true,
 
     partNumberHeaderKeys: [
       "partnumber",
@@ -470,17 +569,44 @@ const MASTER_FILE_REGISTRY = Object.freeze({
 
     requiredHeaderKeys: [
       "partnumber",
-      "customerdescription",
+      "description",
     ],
 
-    columnRules: {
-      I: {
-        target: "scheduleBCode",
-        transform: "hts",
-      },
-    },
-
     headerRules: RAW_MATERIAL_HEADER_RULES,
+  }),
+
+  [MASTER_TYPES.BILL_OF_MATERIALS]: Object.freeze({
+    masterType: MASTER_TYPES.BILL_OF_MATERIALS,
+
+    displayName: "Bill of Materials",
+
+    sheetNames: [
+      "BOM E",
+    ],
+
+    ignoredSheetNames: [],
+
+    headerRow: 1,
+
+    ignoreUnnamedHeaders: true,
+
+    allowDuplicatePartNumbers: true,
+
+    partNumberHeaderKeys: [
+      "finishedgoodpartnumber",
+    ],
+
+    ignoredHeaderKeys: [],
+
+    requiredHeaderKeys: [
+      "finishedgoodpartnumber",
+      "componentpartnumber",
+      "type",
+      "quantity",
+      "unitofmeasure",
+    ],
+
+    headerRules: BILL_OF_MATERIALS_HEADER_RULES,
   }),
 });
 

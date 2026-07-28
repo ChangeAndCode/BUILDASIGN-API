@@ -58,8 +58,9 @@ let activeMasterCatalogInput = null;
 const MASTER_CATALOG_MAX_OPTIONS = 10;
 
 const MASTER_TYPE_LABELS = {
-  finishedProduct: "Finished Goods",
-  rawMaterial: "Raw Material",
+  finishedProduct: "Finished Product (FS E)",
+  rawMaterial: "Raw Material (RM E)",
+  billOfMaterials: "Bill of Materials (BOM E)",
 };
 
 const normalizeMasterCatalogValue = (

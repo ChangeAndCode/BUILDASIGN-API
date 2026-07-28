@@ -1,12 +1,9 @@
 const mongoose = require("mongoose");
 const { VALID_SITES } = require("../data/siteConfig");
+const { MASTER_TYPES } = require("../data/masterFileRegistry");
 
 const VALID_MASTER_SITES = VALID_SITES;
-
-const VALID_MASTER_TYPES = [
-  "finishedProduct",
-  "rawMaterial",
-];
+const VALID_MASTER_TYPES = Object.values(MASTER_TYPES);
 
 const rawCellSchema = new mongoose.Schema(
   {
@@ -107,6 +104,24 @@ const normalizedValuesSchema = new mongoose.Schema(
       default: "",
     },
 
+    componentPartNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    componentType: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    quantity: {
+      type: Number,
+    },
+
     unitNetWeight: {
       type: Number,
     },
@@ -136,6 +151,12 @@ const normalizedValuesSchema = new mongoose.Schema(
 
     totalUnitCostUsd: {
       type: Number,
+    },
+
+    filler: {
+      type: String,
+      trim: true,
+      default: "",
     },
 
     unitOfMeasure: {
@@ -431,6 +452,13 @@ masterRecordSchema.index({
   sites: 1,
   masterType: 1,
   partNumberNormalized: 1,
+  isDeleted: 1,
+});
+
+masterRecordSchema.index({
+  sites: 1,
+  masterType: 1,
+  "normalizedValues.componentPartNumber": 1,
   isDeleted: 1,
 });
 
