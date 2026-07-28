@@ -1,0 +1,212 @@
+body {
+  overflow-x: hidden;
+}
+
+.master-editor-container {
+  width: min(1200px, 90%);
+  max-width: 90%;
+  min-width: 0;
+}
+
+.master-editor-container .panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.master-editor-toolbar {
+  width: 100%;
+  max-width: 100%;
+  margin: 10px 0;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.master-editor-sites {
+  border: none;
+}
+
+/*
+ * Este es el único contenedor que puede tener
+ * scroll horizontal y vertical.
+ *
+ * 570px equivale aproximadamente al encabezado
+ * y ocho filas.
+ */
+.master-editor-table-wrapper {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 570px;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: none;
+  border-radius: 0;
+  box-sizing: border-box;
+  position: relative;
+  overscroll-behavior: contain;
+}
+
+/*
+ * La tabla puede crecer horizontalmente,
+ * pero queda encerrada dentro del wrapper.
+ */
+.master-editor-table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: auto;
+}
+
+/*
+ * El encabezado permanece fijo durante
+ * el scroll vertical.
+ */
+.master-editor-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  min-width: 170px;
+  height: 64px;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  box-sizing: border-box;
+  background-color: #f5f8fb;
+  font-size: 0.9em;
+  text-align: left;
+  vertical-align: top;
+}
+
+/*
+ * Cada fila tendrá una altura estable.
+ * Esto permite mostrar aproximadamente ocho.
+ */
+.master-editor-table tbody td {
+  min-width: 170px;
+  height: 64px;
+  padding: 8px;
+  box-sizing: border-box;
+  background-color: #fff;
+}
+
+.master-editor-table.data-table input.master-editor-cell {
+  width: 100%;
+  min-width: 150px;
+  height: 46px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid #dcdcdc;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: #333;
+  background-color: #fff;
+  font-size: 0.9em;
+}
+
+.master-editor-table.data-table input.master-editor-cell:disabled {
+  color: #333;
+  background-color: #fff;
+  cursor: default;
+  opacity: 1;
+  -webkit-text-fill-color: #333;
+}
+
+.master-editor-table-wrapper::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.master-editor-table-wrapper::-webkit-scrollbar-track {
+  background-color: #f1f1f1;
+  border-radius: 4px;
+}
+
+.master-editor-table-wrapper::-webkit-scrollbar-thumb {
+  background-color: #707070;
+  border: none;
+  border-radius: 4px;
+}
+
+.master-editor-table-wrapper::-webkit-scrollbar-thumb:hover {
+  background-color: #555;
+}
+
+.master-editor-table thead th.master-editor-actions-column,
+.master-editor-table tbody td.master-editor-actions-cell {
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+  text-align: center;
+}
+
+.master-editor-table tbody td.master-editor-actions-cell {
+  vertical-align: middle;
+}
+
+button.master-editor-row-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  background-color: #dc3545;
+  cursor: pointer;
+}
+
+button.master-editor-row-delete:hover,
+button.master-editor-row-delete:focus {
+  background-color: #c82333;
+}
+
+button.master-editor-row-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button.master-editor-row-delete svg {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+.master-editor-table .catalog-autocomplete {
+  width: 100%;
+  min-width: 150px;
+}
+
+.master-editor-table.data-table
+  input.master-editor-cell.catalog-autocomplete-input {
+  padding: 8px 34px 8px 8px;
+}
+
+.master-editor-table.data-table
+  input.master-editor-cell.master-editor-cell-warning {
+  background-color: #fff8d8;
+}
+
+.master-editor-table.data-table
+  input.master-editor-cell.master-editor-cell-warning:focus {
+  background-color: #fff3bf;
+}
+
+@media (max-width: 800px) {
+  .master-editor-container {
+    width: 95%;
+    max-width: 95%;
+    padding: 20px;
+  }
+
+  .master-editor-table-wrapper {
+    max-height: 570px;
+  }
+}
