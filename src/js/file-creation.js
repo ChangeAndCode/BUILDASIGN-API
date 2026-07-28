@@ -1,3 +1,5 @@
+import { formatSite } from "./site-config.js";
+
 const fileType = document.getElementById("fileType");
 const sections = document.querySelectorAll(".format-section");
 const createFileButton = document.getElementById("createFileButton");
@@ -7,7 +9,404 @@ const updateFileButton = document.getElementById("updateFileButton");
 const validationResult = document.getElementById("validationResult");
 const adminFileNameGroup = document.getElementById("adminFileNameGroup");
 const adminFileNameInput = document.getElementById("adminFileName");
+const lookupSiteGroup = document.getElementById("lookupSiteGroup");
+const lookupSite = document.getElementById("lookupSite");
+const masterLookupStatus = document.getElementById("masterLookupStatus");
 let editingFileId = "";
+let masterLookupContextPromise = null;
+
+const MASTER_LOOKUP_FIELD_MAPS = {
+  finishedProduct: {
+    description: "description",
+    unitWeightLb: "unitNetWeight",
+    dutiableValueUsd: "dutiableValueUsd",
+    filler: "filler",
+    addedValueUsd: "addedValueUsd",
+    unitOfMeasure: "unitOfMeasure",
+    countryOfOrigin: "countryOfOrigin",
+    usaImportHts: "importationHtsCode",
+    usaExportCode: "exportationHtsCode",
+    "USML (ITAR)": "usmlItar",
+  },
+  rawMaterial: {
+    description: "description",
+    unitWeightLb: "unitNetWeight",
+    unitCostUsd: "unitCostUsd",
+    unitOfMeasure: "unitOfMeasure",
+    countryOfOrigin: "countryOfOrigin",
+    importHts: "importationHtsCode",
+    exportHts: "exportationHtsCode",
+    eccn: "eccn",
+    filler: "filler",
+    licenseNumber: "licenseNumber",
+    licenseException: "licenseException",
+    licenseExpiration: "licenseExpirationDate",
+    usml: "usmlItar",
+  },
+};
+
+function setMasterLookupStatus(message = "", type = "info") {
+  if (!masterLookupStatus) return;
+
+  masterLookupStatus.textContent = message;
+  masterLookupStatus.classList.remove(
+    "hidden",
+    "success",
+    "warning",
+    "error",
+  );
+
+  if (!message) {
+    masterLookupStatus.classList.add("hidden");
+    return;
+  }
+
+  if (type !== "info") {
+    masterLookupStatus.classList.add(type);
+  }
+}
+
+async function loadMasterLookupContext() {
+  if (masterLookupContextPromise) {
+    return masterLookupContextPromise;
+  }
+
+  masterLookupContextPromise = fetch("/api/user/profile")
+    .then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "No se pudo obtener la localidad del usuario.",
+        );
+      }
+
+      const user = data.user || {};
+
+      if (user.role === "admin") {
+        if (lookupSiteGroup) {
+          lookupSiteGroup.classList.remove("hidden");
+        }
+
+        return user;
+      }
+
+      if (lookupSite && user.site) {
+        lookupSite.value = user.site;
+      }
+
+      if (lookupSiteGroup) {
+        lookupSiteGroup.classList.add("hidden");
+      }
+
+      return user;
+    })
+    .catch((error) => {
+      masterLookupContextPromise = null;
+      setMasterLookupStatus(error.message, "error");
+      throw error;
+    });
+
+  return masterLookupContextPromise;
+}
+
+function formatLookupValue(fieldKey, value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (fieldKey === "licenseExpiration") {
+    return formatYmdCompact(value);
+  }
+
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
+    return String(
+      Math.round((value + Number.EPSILON) * 1e8) /
+        1e8,
+    );
+  }
+
+  return String(value);
+}
+
+function setRowFieldValues(
+  row,
+  valuesByField,
+  { preserveEmptySource = true } = {},
+) {
+  if (!row) return;
+
+  Object.entries(valuesByField || {}).forEach(
+    ([fieldKey, value]) => {
+      if (
+        preserveEmptySource &&
+        (
+          value === null ||
+          value === undefined ||
+          value === ""
+        )
+      ) {
+        return;
+      }
+
+      const input = row.querySelector(
+        `[data-field-key="${CSS.escape(fieldKey)}"]`,
+      );
+
+      if (!input) return;
+
+      input.value = formatLookupValue(
+        fieldKey,
+        value,
+      );
+      input.setCustomValidity("");
+
+      if (input.dataset.catalogKey) {
+        syncCatalogAutocompleteInput(input);
+      }
+    },
+  );
+}
+
+function mapNormalizedValuesToRow(
+  documentType,
+  normalizedValues,
+) {
+  const fieldMap =
+    MASTER_LOOKUP_FIELD_MAPS[documentType] || {};
+  const rowValues = {};
+
+  Object.entries(fieldMap).forEach(
+    ([fieldKey, normalizedKey]) => {
+      rowValues[fieldKey] =
+        normalizedValues?.[normalizedKey];
+    },
+  );
+
+  return rowValues;
+}
+
+function isEmptyEditorRow(row) {
+  return Array.from(
+    row?.querySelectorAll("input") || [],
+  ).every((input) => !input.value.trim());
+}
+
+function getNextBomTargetRow(currentRow) {
+  const nextRow = currentRow.nextElementSibling;
+
+  if (nextRow && isEmptyEditorRow(nextRow)) {
+    return nextRow;
+  }
+
+  return addBillOfMaterialsRow(
+    {},
+    nextRow || null,
+  );
+}
+
+function applyBomLookupMatches(
+  sourceRow,
+  matches,
+) {
+  let targetRow = sourceRow;
+
+  matches.forEach((match, index) => {
+    if (index > 0) {
+      targetRow = getNextBomTargetRow(targetRow);
+    }
+
+    const values = match.normalizedValues || {};
+
+    setRowFieldValues(targetRow, {
+      finishedGoodPartNumber:
+        match.partNumber,
+      componentPartNumber:
+        values.componentPartNumber,
+      type:
+        values.componentType,
+      quantity:
+        values.quantity,
+      unitOfMeasure:
+        values.unitOfMeasure,
+    });
+  });
+
+  updateTableScroll(bmBody);
+}
+
+async function lookupMasterPartNumber({
+  input,
+  row,
+  documentType,
+}) {
+  const partNumber = String(input.value || "")
+    .trim()
+    .toUpperCase();
+
+  input.value = partNumber;
+
+  if (!partNumber) return;
+
+  try {
+    const user = await loadMasterLookupContext();
+    const site =
+      user.role === "admin"
+        ? lookupSite?.value
+        : user.site;
+
+    if (!site) {
+      throw new Error(
+        "Selecciona una localidad para consultar los Master Files.",
+      );
+    }
+
+    const lookupKey =
+      `${site}|${documentType}|${partNumber}`;
+
+    if (input.dataset.masterLookupKey === lookupKey) {
+      return;
+    }
+
+    input.dataset.masterLookupKey = lookupKey;
+    input.setAttribute("aria-busy", "true");
+
+    setMasterLookupStatus(
+      `Buscando ${partNumber} en ${formatSite(site)}...`,
+    );
+
+    const params = new URLSearchParams({
+      partNumber,
+    });
+
+    if (user.role === "admin") {
+      params.set("site", site);
+    }
+
+    const response = await fetch(
+      `/api/master-files/lookup/part-number?${params.toString()}`,
+    );
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "No se pudo consultar el Part Number.",
+      );
+    }
+
+    if (documentType === "finishedProduct") {
+      const match = data.matches?.finishedProduct;
+
+      if (!match) {
+        setMasterLookupStatus(
+          `${partNumber} no se encontró en FS E para ${formatSite(site)}.`,
+          "warning",
+        );
+        return;
+      }
+
+      setRowFieldValues(
+        row,
+        mapNormalizedValuesToRow(
+          documentType,
+          match.normalizedValues,
+        ),
+      );
+
+      setMasterLookupStatus(
+        `${partNumber} encontrado en FS E. Se completó la fila.`,
+        "success",
+      );
+      return;
+    }
+
+    if (documentType === "rawMaterial") {
+      const match = data.matches?.rawMaterial;
+
+      if (!match) {
+        setMasterLookupStatus(
+          `${partNumber} no se encontró en RM E para ${formatSite(site)}.`,
+          "warning",
+        );
+        return;
+      }
+
+      setRowFieldValues(
+        row,
+        mapNormalizedValuesToRow(
+          documentType,
+          match.normalizedValues,
+        ),
+      );
+
+      setMasterLookupStatus(
+        `${partNumber} encontrado en RM E. Se completó la fila.`,
+        "success",
+      );
+      return;
+    }
+
+    if (documentType === "billOfMaterials") {
+      const matches =
+        data.matches?.bomAsFinishedGood || [];
+
+      if (!matches.length) {
+        setMasterLookupStatus(
+          `${partNumber} no tiene componentes en BOM E para ${formatSite(site)}.`,
+          "warning",
+        );
+        return;
+      }
+
+      applyBomLookupMatches(row, matches);
+
+      setMasterLookupStatus(
+        `${partNumber} encontrado en BOM E. Se cargaron ${matches.length} componente(s).`,
+        "success",
+      );
+    }
+  } catch (error) {
+    delete input.dataset.masterLookupKey;
+    setMasterLookupStatus(
+      error.message ||
+        "No se pudo consultar el Part Number.",
+      "error",
+    );
+  } finally {
+    input.removeAttribute("aria-busy");
+  }
+}
+
+function bindMasterPartNumberLookup(
+  input,
+  row,
+  documentType,
+) {
+  if (!input || input.dataset.masterLookupBound === "true") {
+    return;
+  }
+
+  input.addEventListener("input", () => {
+    delete input.dataset.masterLookupKey;
+  });
+
+  input.addEventListener("change", () => {
+    lookupMasterPartNumber({
+      input,
+      row,
+      documentType,
+    });
+  });
+
+  input.title =
+    "Escribe el Part Number y presiona Enter o sal del campo para consultar Master Files.";
+  input.dataset.masterLookupBound = "true";
+}
 
 const map = {
   finishedProduct: "format-finishedProduct",
@@ -1203,6 +1602,7 @@ function addFinishedProductRow(values = {}) {
     const input = document.createElement("input");
     input.type = "text";
     input.name = `finishedProduct[${col.key}][]`;
+    input.dataset.fieldKey = col.key;
     input.placeholder = col.label;
     const rawVal =
       values && Object.prototype.hasOwnProperty.call(values, col.label)
@@ -1321,7 +1721,13 @@ function addFinishedProductRow(values = {}) {
 
   fpBody.appendChild(row);
   bindCatalogInputsForRow(row, finishedProductColumns);
+  bindMasterPartNumberLookup(
+    row.querySelector('[data-field-key="partNumber"]'),
+    row,
+    "finishedProduct",
+  );
   updateTableScroll(fpBody);
+  return row;
 }
 
 function setFinishedProductRows(rows = []) {
@@ -1411,6 +1817,7 @@ function addRawMaterialRow(values = {}) {
     const input = document.createElement("input");
     input.type = "text";
     input.name = `rawMaterial[${col.key}][]`;
+    input.dataset.fieldKey = col.key;
     input.placeholder = col.label;
     if (col.maxLength) input.maxLength = col.maxLength;
     const rawVal =
@@ -1521,7 +1928,13 @@ function addRawMaterialRow(values = {}) {
 
   rmBody.appendChild(row);
   bindCatalogInputsForRow(row, rawMaterialColumns);
+  bindMasterPartNumberLookup(
+    row.querySelector('[data-field-key="partNumber"]'),
+    row,
+    "rawMaterial",
+  );
   updateTableScroll(rmBody);
+  return row;
 }
 
 function buildBillOfMaterialsTable() {
@@ -1552,7 +1965,10 @@ function buildBillOfMaterialsTable() {
   updateTableScroll(bmBody);
 }
 
-function addBillOfMaterialsRow(values = {}) {
+function addBillOfMaterialsRow(
+  values = {},
+  insertBefore = null,
+) {
   if (!bmBody) return;
   const row = document.createElement("tr");
 
@@ -1561,6 +1977,7 @@ function addBillOfMaterialsRow(values = {}) {
     const input = document.createElement("input");
     input.type = "text";
     input.name = `billOfMaterials[${col.key}][]`;
+    input.dataset.fieldKey = col.key;
     input.placeholder = col.label;
     if (col.maxLength) input.maxLength = col.maxLength;
     const rawVal =
@@ -1656,9 +2073,21 @@ function addBillOfMaterialsRow(values = {}) {
   actionsTd.appendChild(removeBtn);
   row.appendChild(actionsTd);
 
-  bmBody.appendChild(row);
+  if (insertBefore) {
+    bmBody.insertBefore(row, insertBefore);
+  } else {
+    bmBody.appendChild(row);
+  }
   bindCatalogInputsForRow(row, billOfMaterialsColumns);
+  bindMasterPartNumberLookup(
+    row.querySelector(
+      '[data-field-key="finishedGoodPartNumber"]',
+    ),
+    row,
+    "billOfMaterials",
+  );
   updateTableScroll(bmBody);
+  return row;
 }
 
 function formatYmd(value) {
@@ -2208,7 +2637,10 @@ if (rmAddRowBtn) {
 }
 
 if (bmAddRowBtn) {
-  bmAddRowBtn.addEventListener("click", addBillOfMaterialsRow);
+  bmAddRowBtn.addEventListener(
+    "click",
+    () => addBillOfMaterialsRow(),
+  );
 }
 
 if (splAddRowBtn) {
@@ -2708,6 +3140,22 @@ if (fileType) {
 }
 
 loadManualCatalogOptions();
+loadMasterLookupContext().catch(() => {});
+
+if (lookupSite) {
+  lookupSite.addEventListener("change", () => {
+    document
+      .querySelectorAll("[data-master-lookup-key]")
+      .forEach((input) => {
+        delete input.dataset.masterLookupKey;
+      });
+
+    setMasterLookupStatus(
+      `Las búsquedas usarán ${formatSite(lookupSite.value)}.`,
+    );
+  });
+}
+
 window.addEventListener("focus", () => {
   loadManualCatalogOptions(true);
 });

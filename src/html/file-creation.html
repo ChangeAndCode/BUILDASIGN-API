@@ -24,6 +24,23 @@
       </select>
     </div>
 
+    <div id="lookupSiteGroup" class="form-group hidden">
+      <label for="lookupSite" style="font-weight: bold;">
+        Localidad para consultar Master Files:
+      </label>
+      <select id="lookupSite" style="margin-top: 10px;">
+        <option value="local-01">Local 01</option>
+        <option value="local-02">Local 02</option>
+      </select>
+    </div>
+
+    <div
+      id="masterLookupStatus"
+      class="master-lookup-status hidden"
+      role="status"
+      aria-live="polite"
+    ></div>
+
     <div id="adminFileNameGroup" class="form-group hidden">
       <label for="adminFileName" style="font-weight: bold;">Nombre para administracion:</label>
       <input type="text" id="adminFileName" style="margin-top: 10px;" maxlength="80"

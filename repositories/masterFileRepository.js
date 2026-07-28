@@ -177,6 +177,124 @@ const findMasterFiles = async ({
 };
 
 /**
+ * Recupera los archivos madre vigentes de una sede, ordenados
+ * del más reciente al más antiguo. El servicio selecciona el
+ * primero de cada tipo como fuente activa para las búsquedas.
+ */
+const findReadyMasterFilesBySite = async (site) => {
+  return MasterFile.find({
+    status: "ready",
+    sites: site,
+  })
+    .sort({
+      lastImportedAt: -1,
+      createdAt: -1,
+    })
+    .select([
+      "_id",
+      "name",
+      "originalFileName",
+      "masterType",
+      "sourceSheet",
+      "recordCount",
+      "lastImportedAt",
+      "createdAt",
+    ].join(" "))
+    .lean();
+};
+
+/**
+ * Busca coincidencias exactas en las tres fuentes activas.
+ */
+const findPartNumberMatches = async ({
+  masterFileIdsByType,
+  partNumberNormalized,
+  bomLimit = 5000,
+}) => {
+  const finishedProductFileId =
+    masterFileIdsByType.finishedProduct;
+  const rawMaterialFileId =
+    masterFileIdsByType.rawMaterial;
+  const billOfMaterialsFileId =
+    masterFileIdsByType.billOfMaterials;
+
+  const recordProjection = [
+    "_id",
+    "masterFileId",
+    "masterType",
+    "partNumber",
+    "partNumberNormalized",
+    "sourceRow",
+    "normalizedValues",
+    "validationWarnings",
+  ].join(" ");
+
+  const finishedProductPromise = finishedProductFileId
+    ? MasterRecord.findOne({
+        masterFileId: finishedProductFileId,
+        partNumberNormalized,
+        isDeleted: false,
+      })
+        .select(recordProjection)
+        .lean()
+    : Promise.resolve(null);
+
+  const rawMaterialPromise = rawMaterialFileId
+    ? MasterRecord.findOne({
+        masterFileId: rawMaterialFileId,
+        partNumberNormalized,
+        isDeleted: false,
+      })
+        .select(recordProjection)
+        .lean()
+    : Promise.resolve(null);
+
+  const bomAsFinishedGoodPromise = billOfMaterialsFileId
+    ? MasterRecord.find({
+        masterFileId: billOfMaterialsFileId,
+        partNumberNormalized,
+        isDeleted: false,
+      })
+        .sort({ sourceRow: 1 })
+        .limit(bomLimit)
+        .select(recordProjection)
+        .lean()
+    : Promise.resolve([]);
+
+  const bomAsComponentPromise = billOfMaterialsFileId
+    ? MasterRecord.find({
+        masterFileId: billOfMaterialsFileId,
+        "normalizedValues.componentPartNumber":
+          partNumberNormalized,
+        isDeleted: false,
+      })
+        .sort({ sourceRow: 1 })
+        .limit(bomLimit)
+        .select(recordProjection)
+        .lean()
+    : Promise.resolve([]);
+
+  const [
+    finishedProduct,
+    rawMaterial,
+    bomAsFinishedGood,
+    bomAsComponent,
+  ] = await Promise.all([
+    finishedProductPromise,
+    rawMaterialPromise,
+    bomAsFinishedGoodPromise,
+    bomAsComponentPromise,
+  ]);
+
+  return {
+    finishedProduct,
+    rawMaterial,
+    bomAsFinishedGood,
+    bomAsComponent,
+  };
+};
+
+/**
  * Elimina todos los registros internos asociados
  * con un archivo madre.
  */
@@ -348,6 +466,8 @@ module.exports = {
   updateMasterFileByIdAndRevision,
   findMasterFileById,
   findMasterFiles,
+  findReadyMasterFilesBySite,
+  findPartNumberMatches,
   findActiveMasterRecordsByMasterFileId,
   findActiveMasterRecordsForEditor,
   findActiveMasterRecordsForUpdate,

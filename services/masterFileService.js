@@ -7,6 +7,7 @@ const masterFileRepository = require(
 const {
   parseMasterFileBuffer,
   buildMasterRecordFromEditorRow,
+  normalizePartNumber,
 } = require("../utils/masterFileParser");
 const {
   createMasterFileWorkbook,
@@ -191,7 +192,12 @@ const getMasterEditorUserId = (
  */
 const applyEditorDuplicateWarnings = (
   records,
+  masterType,
 ) => {
+  if (masterType === "billOfMaterials") {
+    return;
+  }
+
   const recordsByPartNumber =
     new Map();
 
@@ -353,6 +359,206 @@ const listMasterFiles = async ({
     filter,
     limit: safeLimit,
   });
+};
+
+/**
+ * Resuelve la sede que puede utilizarse para una búsqueda.
+ * Los administradores deben indicarla; los usuarios siempre
+ * quedan restringidos a la sede de su cuenta.
+ */
+const resolveLookupSite = (
+  user,
+  requestedSite,
+) => {
+  if (!user) {
+    throw createMasterServiceError(
+      "MASTER_AUTH_REQUIRED",
+      "Debes iniciar sesión para consultar archivos madre.",
+      401,
+    );
+  }
+
+  if (user.isActive !== true) {
+    throw createMasterServiceError(
+      "MASTER_USER_INACTIVE",
+      "La cuenta no está activa.",
+      403,
+    );
+  }
+
+  if (user.role === "admin") {
+    const adminSite = String(
+      requestedSite || "",
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!adminSite) {
+      throw createMasterServiceError(
+        "MASTER_LOOKUP_SITE_REQUIRED",
+        "Selecciona una sede para realizar la búsqueda.",
+      );
+    }
+
+    if (!VALID_MASTER_SITES.includes(adminSite)) {
+      throw createMasterServiceError(
+        "MASTER_SITE_INVALID",
+        "La sede solicitada no es válida.",
+      );
+    }
+
+    return adminSite;
+  }
+
+  if (user.role !== "user") {
+    throw createMasterServiceError(
+      "MASTER_ROLE_INVALID",
+      "El usuario no tiene un rol válido.",
+      403,
+    );
+  }
+
+  const userSite = String(user.site || "")
+    .trim()
+    .toLowerCase();
+
+  if (!VALID_MASTER_SITES.includes(userSite)) {
+    throw createMasterServiceError(
+      "MASTER_USER_SITE_REQUIRED",
+      "El usuario no tiene una sede válida asignada.",
+      403,
+    );
+  }
+
+  return userSite;
+};
+
+const toLookupSource = (masterFile) => {
+  if (!masterFile) return null;
+
+  return {
+    id: masterFile._id,
+    name: masterFile.name,
+    originalFileName:
+      masterFile.originalFileName,
+    masterType: masterFile.masterType,
+    sourceSheet: masterFile.sourceSheet,
+    recordCount: masterFile.recordCount,
+    lastImportedAt:
+      masterFile.lastImportedAt,
+  };
+};
+
+/**
+ * Busca un Part Number en FS, RM y BOM utilizando la versión
+ * más reciente de cada fuente disponible para la sede.
+ */
+const lookupPartNumber = async ({
+  user,
+  requestedSite,
+  partNumber,
+}) => {
+  const site = resolveLookupSite(
+    user,
+    requestedSite,
+  );
+
+  const normalizedPartNumber =
+    normalizePartNumber(partNumber);
+
+  if (!normalizedPartNumber) {
+    throw createMasterServiceError(
+      "MASTER_PART_NUMBER_REQUIRED",
+      "Debes indicar un Part Number.",
+    );
+  }
+
+  if (normalizedPartNumber.length > 100) {
+    throw createMasterServiceError(
+      "MASTER_PART_NUMBER_TOO_LONG",
+      "El Part Number no puede exceder 100 caracteres.",
+    );
+  }
+
+  const availableMasterFiles =
+    await masterFileRepository
+      .findReadyMasterFilesBySite(site);
+
+  const activeMasterFiles = {};
+
+  for (const masterFile of availableMasterFiles) {
+    if (!activeMasterFiles[masterFile.masterType]) {
+      activeMasterFiles[masterFile.masterType] =
+        masterFile;
+    }
+  }
+
+  const masterFileIdsByType =
+    Object.fromEntries(
+      Object.entries(activeMasterFiles).map(
+        ([masterType, masterFile]) => [
+          masterType,
+          masterFile._id,
+        ],
+      ),
+    );
+
+  const matches =
+    await masterFileRepository
+      .findPartNumberMatches({
+        masterFileIdsByType,
+        partNumberNormalized:
+          normalizedPartNumber,
+      });
+
+  const bomAsFinishedGood =
+    matches.bomAsFinishedGood || [];
+  const bomAsComponent =
+    matches.bomAsComponent || [];
+
+  return {
+    query: {
+      partNumber:
+        String(partNumber || "").trim(),
+      partNumberNormalized:
+        normalizedPartNumber,
+      site,
+    },
+    sources: {
+      finishedProduct: toLookupSource(
+        activeMasterFiles.finishedProduct,
+      ),
+      rawMaterial: toLookupSource(
+        activeMasterFiles.rawMaterial,
+      ),
+      billOfMaterials: toLookupSource(
+        activeMasterFiles.billOfMaterials,
+      ),
+    },
+    matches: {
+      finishedProduct:
+        matches.finishedProduct || null,
+      rawMaterial:
+        matches.rawMaterial || null,
+      bomAsFinishedGood,
+      bomAsComponent,
+    },
+    summary: {
+      finishedProduct:
+        Boolean(matches.finishedProduct),
+      rawMaterial:
+        Boolean(matches.rawMaterial),
+      bomAsFinishedGoodCount:
+        bomAsFinishedGood.length,
+      bomAsComponentCount:
+        bomAsComponent.length,
+      found:
+        Boolean(matches.finishedProduct) ||
+        Boolean(matches.rawMaterial) ||
+        bomAsFinishedGood.length > 0 ||
+        bomAsComponent.length > 0,
+    },
+  };
 };
 
 /**
@@ -1086,6 +1292,7 @@ const updateMasterFileFromEditor =
 
           applyEditorDuplicateWarnings(
             finalRecords,
+            masterFile.masterType,
           );
 
           const now =
@@ -1649,6 +1856,7 @@ module.exports = {
   importMasterFile,
   normalizeMasterSites,
   listMasterFiles,
+  lookupPartNumber,
   getMasterFileEditorData,
   updateMasterFileFromEditor,
   downloadMasterFile,

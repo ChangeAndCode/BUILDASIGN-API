@@ -37,6 +37,19 @@ router.get(
   masterFileController.listMasterFiles,
 );
 
+/**
+ * GET /api/master-files/lookup/part-number
+ *
+ * Query:
+ * partNumber=...
+ * site=local-01 (obligatorio para administradores)
+ */
+router.get(
+  "/lookup/part-number",
+  USER_PROTECTED,
+  masterFileController.lookupPartNumber,
+);
+
 router.post(
   "/",
   ADMIN_PROTECTED,
