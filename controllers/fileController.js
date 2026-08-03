@@ -13,13 +13,16 @@ const FinishedProduct = require("../models/FinishedProduct");
 const BillOfMaterials = require("../models/BOM");
 const RawMaterial = require("../models/RawMaterial");
 const SPLScrap = require("../models/SPLScrap");
-const { VALID_SITES } = require("../data/siteConfig");
 const { getUOMOptions } = require("../data/uomCatalog");
 const {
   getCountryOptions,
   getCountryNameToCode,
 } = require("../data/countryCatalog");
 const { convertXlsToXlsx } = require("../utils/xlsConverter");
+const masterFileService = require(
+  "../services/masterFileService",
+);
+const { VALID_SITES } = require("../data/siteConfig");
 
 // Middleware de Multer (configúralo una vez)
 const multer = require("multer");
@@ -60,6 +63,8 @@ const requireAdminFileModelByType = (type) => {
 const normalizeAdminFileName = (value) =>
   typeof value === "string" ? value.trim() : "";
 
+const VALID_USER_SITES = VALID_SITES;
+
 const normalizeUserSite = (value) =>
   typeof value === "string" ? value.trim() : "";
 
@@ -68,7 +73,7 @@ const isAdminUser = (user) =>
 
 const getScopedUserSite = (user) => {
   const normalizedSite = normalizeUserSite(user?.site);
-  return VALID_SITES.includes(normalizedSite) ? normalizedSite : "";
+  return VALID_USER_SITES.includes(normalizedSite) ? normalizedSite : "";
 };
 
 const buildAdminFileQueryForUser = (user) => {
@@ -87,7 +92,7 @@ const resolveDocumentSiteForWrite = (user, fallbackSite = "") => {
   if (userSite) return userSite;
 
   const normalizedFallbackSite = normalizeUserSite(fallbackSite);
-  return VALID_SITES.includes(normalizedFallbackSite)
+  return VALID_USER_SITES.includes(normalizedFallbackSite)
     ? normalizedFallbackSite
     : "";
 };
@@ -623,32 +628,124 @@ const importManualFile = async (req, res) => {
 
     const fileBuffer = await fs.readFile(readPath);
 
-    const importResult = await fileConversionService.prepareManualImportFromFile(
-      fileBuffer,
-      effectiveName,
-      documentType
-    );
+    const importResult =
+      await fileConversionService
+        .prepareManualImportFromFile(
+          fileBuffer,
+          effectiveName,
+          documentType,
+        );
 
-    const rows = Array.isArray(importResult.rows) ? importResult.rows : [];
+    let rows =
+      Array.isArray(importResult.rows)
+        ? importResult.rows
+        : [];
+
+    let errors =
+      Array.isArray(importResult.errors)
+        ? importResult.errors
+        : [];
+
+    let hasErrors =
+      Boolean(importResult.hasErrors);
+
+    let masterLookupSummary = null;
+
+    if (
+      documentType ===
+      "billOfMaterials"
+    ) {
+      const requestedSite =
+        resolveDocumentSiteForWrite(
+          req.user,
+          req.body.site,
+        );
+
+      if (!requestedSite) {
+        throw createHttpError(
+          400,
+          "Debes seleccionar una sede para consultar el archivo madre B.O.M.",
+          {
+            code:
+              "DOCUMENT_SITE_REQUIRED",
+          },
+        );
+      }
+
+      const enrichmentResult =
+        await masterFileService
+          .enrichBillOfMaterialsRows({
+            user: req.user,
+            requestedSite,
+            rows,
+          });
+
+      rows =
+        enrichmentResult.rows;
+
+      masterLookupSummary =
+        enrichmentResult.summary;
+
+      const validationResult =
+        await fileConversionService
+          .validateManualRowsForDocument(
+            rows,
+            documentType,
+            {
+              allowEmptyMandatoryFields:
+                false,
+            },
+          );
+
+      rows =
+        Array.isArray(
+          validationResult
+            .transformedData
+            ?.Sheet1,
+        )
+          ? validationResult
+              .transformedData
+              .Sheet1
+          : rows;
+
+      errors =
+        validationResult.errors || [];
+
+      hasErrors =
+        Boolean(
+          validationResult.hasErrors,
+        );
+    }
     const suggestedAdminFileName = path.parse(originalName).name;
 
     return res.status(200).json({
-      message: importResult.hasErrors
+      message: hasErrors
         ? "Archivo cargado con observaciones."
         : "Archivo cargado correctamente.",
       documentType,
       rows,
-      errors: importResult.errors || [],
-      hasErrors: !!importResult.hasErrors,
+      errors,
+      hasErrors,
+      masterLookupSummary,
       fileName: originalName,
       suggestedAdminFileName,
     });
   } catch (error) {
-    console.error("Error al importar archivo manual:", error);
-    return res.status(500).json({
-      message: "Error al importar el archivo.",
-      error: error.message,
-    });
+    console.error(
+      "Error al importar archivo manual:",
+      error,
+    );
+
+    return res
+      .status(error.statusCode || 500)
+      .json({
+        message:
+          error.statusCode
+            ? error.message
+            : "Error al importar el archivo.",
+        error: error.message,
+        code: error.code,
+      });
   } finally {
     await fs.unlink(tempFilePath).catch(() => {});
     if (convertedTempPath && convertedTempPath !== tempFilePath) {
@@ -658,15 +755,32 @@ const importManualFile = async (req, res) => {
 };
 
 const createManualFile = async (req, res) => {
-  const { documentType, rows, outputFormat, displayName } = req.body || {};
+  const {
+    documentType,
+    rows,
+    outputFormat,
+    displayName,
+    site,
+  } = req.body || {};
   const normalizedName = normalizeAdminFileName(displayName);
-  const requestUserSite = getScopedUserSite(req.user);
+  const requestUserSite =
+    resolveDocumentSiteForWrite(
+      req.user,
+      site,
+    );
 
   if (!documentType) {
     return res.status(400).json({ message: "documentType es requerido." });
   }
   if (!Array.isArray(rows)) {
     return res.status(400).json({ message: "rows debe ser un arreglo." });
+  }
+  if (!requestUserSite) {
+    return res.status(400).json({
+      message:
+        "Debes seleccionar una sede válida para crear el archivo.",
+      code: "DOCUMENT_SITE_REQUIRED",
+    });
   }
 
   const finalOutputFormat = outputFormat || getDefaultFormat(documentType);
@@ -993,7 +1107,11 @@ const copyAdminFileById = async (req, res) => {
 const updateAdminFileById = async (req, res) => {
   const { id } = req.params;
   const { type } = req.query || {};
-  const { rows, displayName } = req.body || {};
+  const {
+    rows,
+    displayName,
+    site,
+  } = req.body || {};
 
   if (!isSupportedAdminFileType(type)) {
     return res.status(400).json({
@@ -1026,13 +1144,29 @@ const updateAdminFileById = async (req, res) => {
 
     const normalizedName = normalizeAdminFileName(displayName);
     const nextAdminFileName = normalizedName || doc.adminFileName || "";
-    const scopedSite = normalizeUserSite(doc.site) || getScopedUserSite(req.user);
+    const scopedSite =
+      resolveDocumentSiteForWrite(
+        req.user,
+        normalizeUserSite(doc.site) ||
+          site,
+      );
+
+    if (!scopedSite) {
+      return res.status(400).json({
+        message:
+          "Debes seleccionar una sede válida para actualizar el archivo.",
+        code:
+          "DOCUMENT_SITE_REQUIRED",
+      });
+    }
+
     await assertAdminFileNameAvailable(nextAdminFileName, {
-      site: scopedSite || undefined,
+      site: scopedSite,
       exclude: { type, id },
     });
 
     doc.adminFileName = nextAdminFileName || doc.adminFileName;
+    doc.site = scopedSite;
     doc.rows = Array.isArray(validationResult.transformedData.Sheet1)
       ? validationResult.transformedData.Sheet1
       : [];

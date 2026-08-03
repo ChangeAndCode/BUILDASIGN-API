@@ -57,10 +57,149 @@ let activeMasterCatalogInput = null;
 
 const MASTER_CATALOG_MAX_OPTIONS = 10;
 
+const MASTER_COUNTRY_CODE_ALIASES =
+  new Map([
+    ["USA", "US"],
+  ]);
+
 const MASTER_TYPE_LABELS = {
-  finishedProduct: "Finished Product (FS E)",
-  rawMaterial: "Raw Material (RM E)",
-  billOfMaterials: "Bill of Materials (BOM E)",
+  finishedProduct: "Finished Goods",
+  rawMaterial: "Raw Material",
+  billOfMaterials: "Bill of Materials",
+};
+
+const MASTER_DATE_HEADER_KEYS =
+  new Set([
+    "licenseexpirationdate",
+    "licenseexceptiondate",
+    "licexpdate",
+    "expirationdate",
+    "expireson",
+    "periodfrom",
+    "periodto",
+  ]);
+
+const isMasterDateHeader = (
+  header,
+) => {
+  const mappedField =
+    header?.mappedField || "";
+
+  const normalizedName =
+    String(
+      header?.normalizedName || "",
+    );
+
+  return (
+    mappedField ===
+      "licenseExpirationDate" ||
+    MASTER_DATE_HEADER_KEYS.has(
+      normalizedName,
+    )
+  );
+};
+
+const MASTER_CURRENCY_MAPPED_FIELDS =
+  new Set([
+    "materialCostUsd",
+    "dutiableValueUsd",
+    "unitCostUsd",
+    "unitValueUsd",
+    "addedValueUsd",
+    "totalUnitCostUsd",
+    "totalValueUsd",
+  ]);
+
+const MASTER_CURRENCY_HEADER_KEYS =
+  new Set([
+    "materialcostusd",
+    "dutiablevalueusd",
+    "unitcostusd",
+    "unitvalueusd",
+    "addedvalueusd",
+    "totalunitcost",
+    "totalunitcostusd",
+    "totalvalueusd",
+  ]);
+
+const isMasterCurrencyHeader = (
+  header,
+) => {
+  return (
+    MASTER_CURRENCY_MAPPED_FIELDS.has(
+      header?.mappedField || "",
+    ) ||
+    MASTER_CURRENCY_HEADER_KEYS.has(
+      header?.normalizedName || "",
+    )
+  );
+};
+
+const normalizeMasterCurrencyValue = (
+  value,
+) => {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  const rawValue = String(value)
+    .replace(/\u00a0/g, " ")
+    .trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const isNegative =
+    /^\(.*\)$/.test(rawValue);
+
+  const normalizedValue = rawValue
+    .replace(/\p{Sc}/gu, "")
+    .replace(/,/g, "")
+    .replace(/\s+/g, "")
+    .replace(/^\((.*)\)$/, "$1");
+
+  if (
+    isNegative &&
+    normalizedValue &&
+    !normalizedValue.startsWith("-")
+  ) {
+    return `-${normalizedValue}`;
+  }
+
+  return normalizedValue;
+};
+
+const configureMasterCurrencyInput = (
+  input,
+) => {
+  input.dataset.currency = "true";
+
+  input.value =
+    normalizeMasterCurrencyValue(
+      input.value,
+    );
+
+  input.addEventListener(
+    "input",
+    () => {
+      const normalizedValue =
+        normalizeMasterCurrencyValue(
+          input.value,
+        );
+
+      if (
+        input.value !==
+        normalizedValue
+      ) {
+        input.value =
+          normalizedValue;
+      }
+    },
+  );
 };
 
 const normalizeMasterCatalogValue = (
@@ -396,6 +535,118 @@ const formatCellValue = (value) => {
   } catch (error) {
     return String(value);
   }
+};
+
+const formatMasterYmd = (value) => {
+  const rawValue =
+    formatCellValue(value).trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const digits = rawValue
+    .replace(/\D/g, "")
+    .slice(0, 8);
+
+  /*
+   * Conservamos textos desconocidos para que
+   * el usuario pueda verlos y corregirlos.
+   */
+  if (!digits) {
+    return rawValue;
+  }
+
+  const year = digits.slice(0, 4);
+  const month = digits.slice(4, 6);
+  const day = digits.slice(6, 8);
+
+  let formattedValue = year;
+
+  if (month) {
+    formattedValue += `-${month}`;
+  }
+
+  if (day) {
+    formattedValue += `-${day}`;
+  }
+
+  return formattedValue;
+};
+
+const isValidMasterYmd = (value) => {
+  const match = String(value || "")
+    .trim()
+    .match(
+      /^(\d{4})-(\d{2})-(\d{2})$/,
+    );
+
+  if (!match) {
+    return false;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day,
+    ),
+  );
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() ===
+      month - 1 &&
+    date.getUTCDate() === day
+  );
+};
+
+const validateMasterYmdInput = (
+  input,
+) => {
+  const value = String(
+    input.value || "",
+  ).trim();
+
+  const isValid =
+    !value ||
+    isValidMasterYmd(value);
+
+  input.setCustomValidity(
+    isValid
+      ? ""
+      : "Ingresa una fecha válida en formato YYYY-MM-DD.",
+  );
+
+  return isValid;
+};
+
+const configureMasterYmdInput = (
+  input,
+) => {
+  input.maxLength = 10;
+  input.inputMode = "numeric";
+  input.placeholder = "YYYY-MM-DD";
+  input.dataset.dateFormat = "ymd";
+
+  input.addEventListener(
+    "input",
+    () => {
+      input.value = formatMasterYmd(
+        input.value,
+      );
+
+      /*
+       * No mostramos errores mientras
+       * el usuario está editando.
+       */
+      input.setCustomValidity("");
+    },
+  );
 };
 
 const getOrderedHeaders = (headers) => {
@@ -884,6 +1135,11 @@ const validateMasterCatalogInput = (
         trimmedValue,
       );
 
+    const aliasCode =
+      MASTER_COUNTRY_CODE_ALIASES.get(
+        possibleCode,
+    );
+
     const codeByName =
       catalog.nameToCode.get(
         normalizeMasterCountryName(
@@ -896,7 +1152,12 @@ const validateMasterCatalogInput = (
         possibleCode,
       )
         ? possibleCode
-        : codeByName;
+        : aliasCode &&
+            catalog.optionsSet.has(
+              aliasCode,
+            )
+          ? aliasCode
+          : codeByName;
 
     if (resolvedCode) {
       input.value =
@@ -1244,11 +1505,33 @@ const createRecordRow = (
     input.className =
       "master-editor-cell";
 
-    input.value = formatCellValue(
+    const rawCellValue =
       valuesByColumn.get(
         Number(header.columnIndex),
-      ),
-    );
+      );
+
+    const isDateField =
+      isMasterDateHeader(header);
+
+    const isCurrencyField =
+      isMasterCurrencyHeader(header);
+
+    if (isDateField) {
+      input.value =
+        formatMasterYmd(
+          rawCellValue,
+        );
+    } else if (isCurrencyField) {
+      input.value =
+        normalizeMasterCurrencyValue(
+          rawCellValue,
+        );
+    } else {
+      input.value =
+        formatCellValue(
+          rawCellValue,
+        );
+    }
 
     input.disabled =
       !canEditMasterContent();
@@ -1264,6 +1547,15 @@ const createRecordRow = (
 
     input.dataset.mappedField =
       header.mappedField || "";
+
+    if (isDateField) {
+      configureMasterYmdInput(input);
+    }
+    if (isCurrencyField) {
+      configureMasterCurrencyInput(
+        input,
+      );
+    }
 
     input.addEventListener(
       "input",
@@ -2102,50 +2394,66 @@ const validateMasterEditorBeforeSave = (
   let firstInvalidInput = null;
   let invalidRowNumber = 0;
 
-  tableRows.forEach(
-    (row, rowIndex) => {
-      const inputs = Array.from(
-        row.querySelectorAll(
-          "input.master-editor-cell",
-        ),
-      );
+  for (
+    let rowIndex = 0;
+    rowIndex < tableRows.length;
+    rowIndex += 1
+  ) {
+    const row = tableRows[rowIndex];
 
-      inputs.forEach((input) => {
-        const mappedField =
-          input.dataset.mappedField || "";
+    const inputs = Array.from(
+      row.querySelectorAll(
+        "input.master-editor-cell",
+      ),
+    );
 
-        const isRequired = [
-          "partNumber",
-          "description",
-        ].includes(mappedField);
+    for (const input of inputs) {
+      const mappedField =
+        input.dataset.mappedField || "";
 
-        if (isRequired) {
-          input.setCustomValidity(
-            input.value.trim()
-              ? ""
-              : "Este campo es obligatorio.",
-          );
-        }
+      const isRequired = [
+        "partNumber",
+        "description",
+      ].includes(mappedField);
 
-        if (input.dataset.catalogKey) {
-          validateMasterCatalogInput(
-            input,
-          );
-        }
+      if (isRequired) {
+        input.setCustomValidity(
+          input.value.trim()
+            ? ""
+            : "Este campo es obligatorio.",
+        );
+      }
 
-        if (
-          !firstInvalidInput &&
-          !input.checkValidity()
-        ) {
-          firstInvalidInput =
-            input;
+      if (
+        input.dataset.dateFormat ===
+        "ymd"
+      ) {
+        validateMasterYmdInput(input);
+      }
 
-          invalidRowNumber =
-            rowIndex + 1;
-        }
-      });
-    },
-  );
+      if (input.dataset.catalogKey) {
+        validateMasterCatalogInput(
+          input,
+        );
+      }
+
+      if (!input.checkValidity()) {
+        firstInvalidInput = input;
+        invalidRowNumber =
+          rowIndex + 1;
+
+        break;
+      }
+    }
+
+    /*
+    * No recorremos miles de filas después
+    * de encontrar el primer error.
+    */
+    if (firstInvalidInput) {
+      break;
+    }
+  }
 
   if (firstInvalidInput) {
     showEditorMessage(

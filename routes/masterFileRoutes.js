@@ -47,7 +47,7 @@ router.get(
 router.get(
   "/lookup/part-number",
   USER_PROTECTED,
-  masterFileController.lookupPartNumber,
+  masterFileController.lookupMasterRecordByPartNumber,
 );
 
 router.post(

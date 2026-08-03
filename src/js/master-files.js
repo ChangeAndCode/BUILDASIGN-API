@@ -709,22 +709,15 @@ const validateSelectedFile = (file) => {
     file.name,
   );
 
-  if (extension === ".xls") {
-    return {
-      isValid: false,
-      message:
-        "La compatibilidad con archivos .xls se habilitará posteriormente mediante LibreOffice.",
-    };
-  }
-
   if (
     extension !== ".xlsx" &&
-    extension !== ".xlsm"
+    extension !== ".xlsm" &&
+    extension !== ".xls"
   ) {
     return {
       isValid: false,
       message:
-        "Actualmente sólo se pueden cargar archivos .xlsx o .xlsm.",
+        "Sólo se pueden cargar archivos .xlsx, .xlsm o .xls.",
     };
   }
 

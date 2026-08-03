@@ -7,6 +7,12 @@ const masterFileService = require(
   "../services/masterFileService"
 );
 
+const {
+  convertXlsBufferToXlsx,
+} = require(
+  "../utils/xlsConverter",
+);
+
 const DEFAULT_MAX_FILE_SIZE_MB = 50;
 
 const configuredMaxFileSizeMb = Number(
@@ -25,6 +31,7 @@ const maxFileSizeBytes =
 const VALID_MASTER_EXTENSIONS = new Set([
   ".xlsx",
   ".xlsm",
+  ".xls",
 ]);
 
 /**
@@ -42,7 +49,7 @@ const masterFileFilter = (
 
   if (!VALID_MASTER_EXTENSIONS.has(extension)) {
     const error = new Error(
-      "Solo se permiten archivos Excel .xlsx o .xlsm.",
+      "Solo se permiten archivos Excel .xlsx, .xlsm o .xls.",
     );
 
     error.code =
@@ -282,45 +289,61 @@ const listMasterFiles = async (
 };
 
 /**
- * Busca un número de parte en las fuentes activas de la sede.
+ * Busca un Part Number dentro de los archivos madre disponibles para
+ * la sede del usuario o la sede seleccionada por un administrador.
  */
-const lookupPartNumber = async (
-  req,
-  res,
-) => {
-  try {
-    const result =
-      await masterFileService.lookupPartNumber({
-        user: req.user,
-        requestedSite: req.query.site,
-        partNumber: req.query.partNumber,
-      });
+const lookupMasterRecordByPartNumber =
+  async (
+    req,
+    res,
+  ) => {
+    try {
+      const result =
+        await masterFileService
+          .lookupMasterRecordByPartNumber({
+            user:
+              req.user,
+            requestedSite:
+              req.query.site,
+            partNumber:
+              req.query.partNumber,
+            componentPartNumber:
+              req.query.componentPartNumber,
+            masterTypes:
+              req.query.masterTypes,
+          });
 
-    return res.status(200).json(result);
-  } catch (error) {
-    const statusCode =
-      Number.isInteger(error.statusCode)
-        ? error.statusCode
-        : 500;
+      return res
+        .status(200)
+        .json(result);
+    } catch (error) {
+      const statusCode =
+        Number.isInteger(
+          error.statusCode,
+        )
+          ? error.statusCode
+          : 500;
 
-    if (statusCode >= 500) {
-      console.error(
-        "[MasterFiles] Error al buscar Part Number:",
-        error,
-      );
+      if (statusCode >= 500) {
+        console.error(
+          "[MasterFiles] Error al buscar Part Number:",
+          error,
+        );
+      }
+
+      return res
+        .status(statusCode)
+        .json({
+          code:
+            error.code ||
+            "MASTER_LOOKUP_ERROR",
+          message:
+            statusCode < 500
+              ? error.message
+              : "Error interno al consultar el Part Number.",
+        });
     }
-
-    return res.status(statusCode).json({
-      code:
-        error.code ||
-        "MASTER_PART_NUMBER_LOOKUP_ERROR",
-      message:
-        statusCode < 500
-          ? error.message
-          : "Error interno al buscar el Part Number.",
-    });
-  }
-};
+  };
 
 /**
  * Devuelve el contenido de un archivo madre
@@ -742,76 +765,77 @@ const importMasterFile = async (
   }
 
   try {
+    const originalFileName =
+      req.file.originalname ||
+      "archivo-madre";
+
+    const originalExtension =
+      path
+        .extname(
+          originalFileName,
+        )
+        .toLowerCase();
+
+    let importBuffer =
+      req.file.buffer;
+
+    if (
+      originalExtension === ".xls"
+    ) {
+      importBuffer =
+        await convertXlsBufferToXlsx(
+          req.file.buffer,
+        );
+    }
     const result =
       await masterFileService
         .importMasterFile({
           fileBuffer:
-            req.file.buffer,
-
-          originalFileName:
-            req.file.originalname,
-
+            importBuffer,
+          originalFileName,
           name:
             req.body.name,
-
           expectedMasterType:
             req.body.masterType ||
             req.body.type,
-
           sites:
             parseSitesField(
               req.body.sites,
             ),
-
           user:
             req.user,
         });
-
     const masterFile =
       result.masterFile;
-
     return res.status(201).json({
       message:
         "Archivo madre importado correctamente.",
-
       masterFile: {
         id:
           masterFile._id,
-
         name:
           masterFile.name,
-
         originalFileName:
           masterFile.originalFileName,
-
         masterType:
           masterFile.masterType,
-
         sites:
           masterFile.sites,
-
         status:
           masterFile.status,
-
         recordCount:
           masterFile.recordCount,
-
         imageCountIgnored:
           masterFile.imageCountIgnored,
-
         warningCount:
           masterFile.warningCount,
-
         createdAt:
           masterFile.createdAt,
-
         lastImportedAt:
           masterFile.lastImportedAt,
       },
-
       insertedRecordCount:
         result.insertedRecordCount,
-
       warnings:
         result.warnings,
     });
@@ -820,7 +844,6 @@ const importMasterFile = async (
       Number.isInteger(error.statusCode)
         ? error.statusCode
         : 500;
-
     if (statusCode >= 500) {
       console.error(
         "[MasterFiles] Error al importar:",
@@ -846,7 +869,7 @@ module.exports = {
   importMasterFile,
   parseSitesField,
   listMasterFiles,
-  lookupPartNumber,
+  lookupMasterRecordByPartNumber,
   getMasterFileEditorData,
   updateMasterFileFromEditor,
   downloadMasterFile,

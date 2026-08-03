@@ -252,6 +252,63 @@ body {
   margin-bottom: 15px;
 }
 
+/*
+ * Mantiene el título del resultado visible
+ * y limita solamente la lista de mensajes.
+ *
+ * 240px muestra aproximadamente diez
+ * observaciones de una línea.
+ */
+.conversion-result.error ul,
+.conversion-result.warning ul {
+  max-height: 240px;
+  margin: 0;
+  padding-left: 28px;
+  padding-right: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/*
+ * Permite que los mensajes largos cambien
+ * de línea sin ampliar horizontalmente
+ * el panel de observaciones.
+ */
+.conversion-result.error li,
+.conversion-result.warning li {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* Apariencia del scroll en Chrome y Edge. */
+.conversion-result.error ul::-webkit-scrollbar,
+.conversion-result.warning ul::-webkit-scrollbar {
+  width: 8px;
+}
+
+.conversion-result.error ul::-webkit-scrollbar-track,
+.conversion-result.warning ul::-webkit-scrollbar-track {
+  background-color: rgba(
+    255,
+    255,
+    255,
+    0.35
+  );
+  border-radius: 4px;
+}
+
+.conversion-result.error ul::-webkit-scrollbar-thumb,
+.conversion-result.warning ul::-webkit-scrollbar-thumb {
+  background-color: #b57a80;
+  border-radius: 4px;
+}
+
+.conversion-result.error ul::-webkit-scrollbar-thumb:hover,
+.conversion-result.warning ul::-webkit-scrollbar-thumb:hover {
+  background-color: #955d64;
+}
+
 .conversion-result-details {
   margin-bottom: 15px;
 }
@@ -460,33 +517,6 @@ h2 {
   text-align: left;
 }
 
-.master-lookup-status {
-  margin: 10px 0 16px;
-  padding: 10px 12px;
-  border: 1px solid #b3d7ff;
-  border-radius: 6px;
-  background: #eaf4ff;
-  color: #0056b3;
-}
-
-.master-lookup-status.success {
-  border-color: #c3e6cb;
-  background: #eafdeb;
-  color: #218838;
-}
-
-.master-lookup-status.warning {
-  border-color: #ffeeba;
-  background: #fff8e1;
-  color: #856404;
-}
-
-.master-lookup-status.error {
-  border-color: #f5c6cb;
-  background: #fef1f2;
-  color: #c82333;
-}
-
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
@@ -618,6 +648,21 @@ h2 {
 .data-table th {
   background-color: #f5f8fb;
   font-weight: 600;
+}
+
+/*
+ * Mantiene visibles los encabezados cuando
+ * el usuario realiza scroll vertical dentro
+ * de las tablas.
+ */
+.table-wrapper > .data-table
+  thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #f5f8fb;
+  box-shadow:
+    0 1px 0 #d9dee5;
 }
 
 .data-table input[type='text'] {
@@ -836,4 +881,151 @@ h2 {
   display: flex;
   gap: 1%;
   justify-content: space-between;
+}
+
+.file-creation-site-help {
+  display: block;
+  margin-top: 7px;
+  color: #667085;
+}
+
+.master-lookup-status {
+  display: block;
+  min-width: 105px;
+  margin: 4px 0 8px;
+  font-size: 0.78em;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.master-lookup-status.is-loading {
+  color: #6b7280;
+}
+
+.master-lookup-status.is-found {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.master-lookup-status.is-warning {
+  color: #9a6700;
+  font-weight: 600;
+}
+
+.master-lookup-status.is-missing {
+  color: #b42318;
+}
+
+.data-table tr.master-lookup-found td {
+  background-color: #f0fdf4;
+}
+
+.data-table tr.master-lookup-missing td {
+  background-color: #fff7ed;
+}
+
+.data-table input.master-autofilled {
+  border-color: #75c58a;
+  background-color: #f4fff6;
+}
+
+/*
+ * Mantiene fija la última columna de las
+ * cuatro tablas durante el scroll horizontal.
+ */
+#fpTable th:last-child,
+#fpTable td:last-child,
+#rmTable th:last-child,
+#rmTable td:last-child,
+#bmTable th:last-child,
+#bmTable td:last-child,
+#splTable th:last-child,
+#splTable td:last-child {
+  position: sticky;
+  right: 0;
+  width: 130px;
+  min-width: 130px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+/*
+ * El encabezado Acciones debe permanecer
+ * encima de encabezados y celdas.
+ */
+#fpTable thead th:last-child,
+#rmTable thead th:last-child,
+#bmTable thead th:last-child,
+#splTable thead th:last-child {
+  z-index: 30;
+  background-color: #f5f8fb;
+  box-shadow:
+    -2px 0 4px rgba(
+      0,
+      0,
+      0,
+      0.08
+    );
+}
+
+/*
+ * Fondo opaco para impedir que las demás
+ * celdas sean visibles debajo de Acciones.
+ */
+#fpTable tbody td:last-child,
+#rmTable tbody td:last-child,
+#bmTable tbody td:last-child,
+#splTable tbody td:last-child {
+  z-index: 20;
+  background-color: #ffffff;
+  box-shadow:
+    -2px 0 4px rgba(
+      0,
+      0,
+      0,
+      0.08
+    );
+  vertical-align: middle;
+}
+
+/* Conserva el color de las consultas exitosas. */
+.table-wrapper
+  > .data-table
+  tr.master-lookup-found
+  td:last-child {
+  background-color: #f0fdf4;
+}
+
+/* Conserva el color de registros no encontrados. */
+.table-wrapper
+  > .data-table
+  tr.master-lookup-missing
+  td:last-child {
+  background-color: #fff7ed;
+}
+
+/*
+ * Sombra izquierda de la columna fija
+ * de Acciones.
+ */
+#fpTable th:last-child::before,
+#fpTable td:last-child::before,
+#rmTable th:last-child::before,
+#rmTable td:last-child::before,
+#bmTable th:last-child::before,
+#bmTable td:last-child::before,
+#splTable th:last-child::before,
+#splTable td:last-child::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  width: 8px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    rgba(15, 23, 42, 0),
+    rgba(15, 23, 42, 0.18)
+  );
 }
