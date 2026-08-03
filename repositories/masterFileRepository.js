@@ -388,6 +388,59 @@ const findBomMasterRecordsForBatch =
       .lean();
   };
 
+const findMasterRecordsForBatch = async ({
+  partNumbers,
+  site,
+  masterTypes,
+}) => {
+  const safePartNumbers = Array.isArray(partNumbers)
+    ? [...new Set(partNumbers.filter(Boolean))]
+    : [];
+  const safeMasterTypes = Array.isArray(masterTypes)
+    ? [...new Set(masterTypes.filter(Boolean))]
+    : [];
+
+  if (!safePartNumbers.length || !safeMasterTypes.length) {
+    return [];
+  }
+
+  return MasterRecord.find({
+    sites: site,
+    masterType: { $in: safeMasterTypes },
+    partNumberNormalized: { $in: safePartNumbers },
+    isDeleted: false,
+  })
+    .sort({ sourceRow: 1 })
+    .select([
+      "_id",
+      "masterFileId",
+      "masterType",
+      "partNumber",
+      "partNumberNormalized",
+      "sourceRow",
+      "normalizedValues",
+      "validationWarnings",
+    ].join(" "))
+    .populate({
+      path: "masterFileId",
+      match: {
+        status: "ready",
+        sites: site,
+        masterType: { $in: safeMasterTypes },
+      },
+      select: [
+        "name",
+        "masterType",
+        "sites",
+        "status",
+        "revision",
+        "updatedAt",
+        "lastImportedAt",
+      ].join(" "),
+    })
+    .lean();
+};
+
 /**
  * Recupera los identificadores y posiciones
  * de los registros que pueden modificarse.
@@ -559,6 +612,7 @@ module.exports = {
   findActiveMasterRecordsForEditor,
   findMasterRecordsByPartNumber,
   findBomMasterRecordsForBatch,
+  findMasterRecordsForBatch,
   findActiveMasterRecordsForUpdate,
   countActiveMasterRecords,
   countActiveMasterRecordWarnings,

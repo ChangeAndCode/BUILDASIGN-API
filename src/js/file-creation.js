@@ -3567,6 +3567,31 @@ function renderErrorList(errors, title = "Errores") {
   validationResult.append(h4, ul);
 }
 
+function appendMasterLookupSummary(summary) {
+  if (!validationResult || !summary) return;
+
+  const section = document.createElement("div");
+  section.className = "master-enrichment-summary";
+
+  const title = document.createElement("h4");
+  title.textContent = "Enriquecimiento desde archivos madre";
+
+  const list = document.createElement("ul");
+  [
+    ["Encontrados", summary.matchedRows],
+    ["No encontrados", summary.missingRows],
+    ["Ambiguos", summary.ambiguousRows],
+    ["Celdas completadas", summary.filledFieldCount],
+  ].forEach(([label, value]) => {
+    const item = document.createElement("li");
+    item.textContent = `${label}: ${Number(value) || 0}`;
+    list.appendChild(item);
+  });
+
+  section.append(title, list);
+  validationResult.appendChild(section);
+}
+
 function resetValidationResult() {
   if (!validationResult) return;
   validationResult.classList.remove("success", "error", "warning");
@@ -3597,11 +3622,7 @@ function renderImportSelectionNotice(fileName, documentType) {
   const p2 = document.createElement("p");
   p2.textContent = `Tipo destino: ${getDocumentTypeLabel(documentType)}`;
 
-  const p3 = document.createElement("p");
-  p3.textContent =
-    "Siguiente paso: enviarlo al backend para cargarlo dentro del editor.";
-
-  validationResult.append(h4, p1, p2, p3);
+  validationResult.append(h4, p1, p2);
 }
 
 function applyImportedRowsToEditor(documentType, rows = []) {
@@ -3724,6 +3745,7 @@ async function startManualImport() {
         data.errors || [{ message: "El archivo se cargo con observaciones." }],
         "Archivo cargado con observaciones",
       );
+      appendMasterLookupSummary(data.masterLookupSummary);
     } else if (validationResult) {
       validationResult.classList.remove(
         "hidden",
@@ -3748,6 +3770,7 @@ async function startManualImport() {
         "Los datos ya estan en el editor. Revisa la informacion y luego crea el archivo.";
 
       validationResult.append(h4, p1, p2, p3);
+      appendMasterLookupSummary(data.masterLookupSummary);
     }
   } catch (error) {
     renderErrorList([

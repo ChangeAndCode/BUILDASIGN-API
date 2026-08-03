@@ -983,7 +983,8 @@ const enrichBillOfMaterialsRows =
 
                 return JSON.stringify([
                   normalizeValue(
-                    values.bomType,
+                    values.bomType ||
+                      values.componentType,
                   ),
 
                   String(
@@ -1052,7 +1053,8 @@ const enrichBillOfMaterialsRows =
         const valuesToFill = [
           [
             "Type",
-            normalizedValues.bomType,
+            normalizedValues.bomType ||
+              normalizedValues.componentType,
           ],
           [
             "Quantity",
@@ -1116,6 +1118,272 @@ const enrichBillOfMaterialsRows =
       },
     };
   };
+
+const isEmptyImportedCell = (value) =>
+  value === undefined ||
+  value === null ||
+  String(value).trim() === "";
+
+const getFirstNormalizedValue = (values, keys) => {
+  for (const key of keys) {
+    if (!isEmptyImportedCell(values?.[key])) {
+      return values[key];
+    }
+  }
+  return "";
+};
+
+const formatImportedDate = (value) => {
+  if (isEmptyImportedCell(value)) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("");
+};
+
+const getFdaAffirmation = (values, sequence, component) => {
+  const affirmations = Array.isArray(values?.fdaAffirmations)
+    ? values.fdaAffirmations
+    : [];
+  return affirmations.find(
+    (item) => Number(item?.sequence) === sequence,
+  )?.[component] || "";
+};
+
+const buildImportedMasterValues = (
+  documentType,
+  normalizedValues,
+) => {
+  const commonValues = {
+    "Description": normalizedValues.description,
+    "Unit of Measure": normalizedValues.unitOfMeasure,
+    "Unit Of Measure": normalizedValues.unitOfMeasure,
+    "Country of Origin": normalizedValues.countryOfOrigin,
+  };
+
+  if (documentType === "finishedProduct") {
+    const values = {
+      ...commonValues,
+      "Unit Weight Lb.": normalizedValues.unitNetWeight,
+      "Dutiable Value (USD)": getFirstNormalizedValue(
+        normalizedValues,
+        ["dutiableValueUsd", "materialCostUsd"],
+      ),
+      "Filler": normalizedValues.filler,
+      "Added Value (USD)": normalizedValues.addedValueUsd,
+      "USA Importation HTS Code": normalizedValues.importationHtsCode,
+      "USA Exportation Code": normalizedValues.exportationHtsCode,
+      "FDA Product Code": normalizedValues.fdaProductCode,
+      "FDA Storage": normalizedValues.fdaStorage,
+      "FDA Country of Origin": normalizedValues.fdaCountryOfOrigin,
+      "FDA Marker": normalizedValues.fdaMarker,
+      "USML (ITAR)": normalizedValues.usmlItar,
+    };
+
+    for (let sequence = 1; sequence <= 6; sequence += 1) {
+      values[`FDA Affirmation of Compliance Code ${sequence}`] =
+        getFdaAffirmation(normalizedValues, sequence, "code");
+      values[`FDA Affirmation of Compliance Qualifier ${sequence}`] =
+        getFdaAffirmation(normalizedValues, sequence, "qualifier");
+    }
+    return values;
+  }
+
+  if (documentType === "rawMaterial") {
+    return {
+      ...commonValues,
+      "Unit Weight Lb.": normalizedValues.unitNetWeight,
+      "Unit Cost (USD)": normalizedValues.unitCostUsd,
+      "Country of origin": normalizedValues.countryOfOrigin,
+      "Unit of measure": normalizedValues.unitOfMeasure,
+      "Importation HTS Code": normalizedValues.importationHtsCode,
+      "Exportation HTS Code": normalizedValues.exportationHtsCode,
+      "ECCN": normalizedValues.eccn,
+      "Filler": normalizedValues.filler,
+      "License Number (LCN)": normalizedValues.licenseNumber,
+      "License Exception": normalizedValues.licenseException,
+      "License Expiration date": formatImportedDate(
+        normalizedValues.licenseExpirationDate,
+      ),
+      "USML (ITAR)": normalizedValues.usmlItar,
+    };
+  }
+
+  if (documentType === "splScrap") {
+    return {
+      ...commonValues,
+      "Unit Value (USD)": getFirstNormalizedValue(
+        normalizedValues,
+        ["unitCostUsd", "materialCostUsd", "totalUnitCostUsd"],
+      ),
+      "Added Value (USD)": normalizedValues.addedValueUsd,
+      "Unit Net Weight": normalizedValues.unitNetWeight,
+      "ECCN": normalizedValues.eccn,
+      "License No.": normalizedValues.licenseNumber,
+      "License Exception": normalizedValues.licenseException,
+      "US IMP HTS Code": normalizedValues.importationHtsCode,
+      "US EXP HTS Code": normalizedValues.exportationHtsCode,
+      "Main Function": normalizedValues.mainFunction,
+    };
+  }
+
+  return {};
+};
+
+const enrichImportedRowsFromMasterFiles = async ({
+  user,
+  requestedSite,
+  documentType,
+  rows,
+}) => {
+  if (documentType === "billOfMaterials") {
+    const result = await enrichBillOfMaterialsRows({
+      user,
+      requestedSite,
+      rows,
+    });
+    const classifiedRows =
+      result.summary.matchedRows +
+      result.summary.missingRows +
+      result.summary.ambiguousRows;
+    result.summary.missingRows += Math.max(
+      0,
+      result.summary.totalRows - classifiedRows,
+    );
+    return result;
+  }
+
+  const masterTypesByDocument = {
+    finishedProduct: ["finishedProduct"],
+    rawMaterial: ["rawMaterial"],
+    splScrap: ["finishedProduct", "rawMaterial"],
+  };
+  const masterTypes = masterTypesByDocument[documentType];
+
+  if (!masterTypes) {
+    return {
+      rows: Array.isArray(rows) ? rows : [],
+      summary: null,
+    };
+  }
+
+  const site = resolveMasterLookupSite(user, requestedSite);
+  const safeRows = Array.isArray(rows)
+    ? rows.map((row) => ({ ...(row || {}) }))
+    : [];
+  const normalizeValue = (value) =>
+    String(value ?? "").trim().toUpperCase();
+  const partNumbers = [
+    ...new Set(
+      safeRows
+        .map((row) => normalizeValue(row["Part Number"]))
+        .filter(Boolean),
+    ),
+  ];
+
+  const records = await masterFileRepository.findMasterRecordsForBatch({
+    partNumbers,
+    site,
+    masterTypes,
+  });
+  const recordsByPartAndType = new Map();
+
+  records.filter((record) => record.masterFileId).forEach((record) => {
+    const key = `${normalizeValue(record.partNumberNormalized)}||${record.masterType}`;
+    if (!recordsByPartAndType.has(key)) recordsByPartAndType.set(key, []);
+    recordsByPartAndType.get(key).push(record);
+  });
+
+  const selectLatestCandidate = (partNumber, masterType) => {
+    const candidates = recordsByPartAndType.get(
+      `${partNumber}||${masterType}`,
+    ) || [];
+    if (!candidates.length) return { status: "missing" };
+
+    candidates.sort((left, right) => {
+      const leftDate = new Date(
+        left.masterFileId?.updatedAt || left.masterFileId?.lastImportedAt || 0,
+      ).getTime();
+      const rightDate = new Date(
+        right.masterFileId?.updatedAt || right.masterFileId?.lastImportedAt || 0,
+      ).getTime();
+      return rightDate - leftDate || Number(left.sourceRow) - Number(right.sourceRow);
+    });
+
+    const newestFileId = String(candidates[0].masterFileId?._id || "");
+    const newestRecords = candidates.filter(
+      (record) => String(record.masterFileId?._id || "") === newestFileId,
+    );
+    const signatures = new Set(
+      newestRecords.map((record) => JSON.stringify(record.normalizedValues || {})),
+    );
+
+    if (signatures.size > 1) return { status: "ambiguous" };
+    return { status: "matched", record: newestRecords[0] };
+  };
+
+  let matchedRows = 0;
+  let missingRows = 0;
+  let ambiguousRows = 0;
+  let filledFieldCount = 0;
+
+  safeRows.forEach((row) => {
+    const partNumber = normalizeValue(row["Part Number"]);
+    if (!partNumber) {
+      missingRows += 1;
+      return;
+    }
+
+    const candidates = masterTypes.map(
+      (masterType) => selectLatestCandidate(partNumber, masterType),
+    );
+    const hasAmbiguousCandidate = candidates.some(
+      (candidate) => candidate.status === "ambiguous",
+    );
+    const matches = candidates.filter(
+      (candidate) => candidate.status === "matched",
+    );
+
+    if (hasAmbiguousCandidate || matches.length > 1) {
+      ambiguousRows += 1;
+      return;
+    }
+    if (!matches.length) {
+      missingRows += 1;
+      return;
+    }
+
+    const valuesToFill = buildImportedMasterValues(
+      documentType,
+      matches[0].record.normalizedValues || {},
+    );
+    Object.entries(valuesToFill).forEach(([fieldName, value]) => {
+      if (
+        isEmptyImportedCell(row[fieldName]) &&
+        !isEmptyImportedCell(value)
+      ) {
+        row[fieldName] = value;
+        filledFieldCount += 1;
+      }
+    });
+    matchedRows += 1;
+  });
+
+  return {
+    site,
+    rows: safeRows,
+    summary: {
+      totalRows: safeRows.length,
+      matchedRows,
+      missingRows,
+      ambiguousRows,
+      filledFieldCount,
+    },
+  };
+};
 
 /**
  * Importa un archivo madre completo.
@@ -2452,6 +2720,7 @@ module.exports = {
   listMasterFiles,
   lookupMasterRecordByPartNumber,
   enrichBillOfMaterialsRows,
+  enrichImportedRowsFromMasterFiles,
   getMasterFileEditorData,
   updateMasterFileFromEditor,
   downloadMasterFile,

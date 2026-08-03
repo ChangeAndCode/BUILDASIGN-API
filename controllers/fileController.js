@@ -652,8 +652,12 @@ const importManualFile = async (req, res) => {
     let masterLookupSummary = null;
 
     if (
-      documentType ===
-      "billOfMaterials"
+      [
+        "finishedProduct",
+        "rawMaterial",
+        "billOfMaterials",
+        "splScrap",
+      ].includes(documentType)
     ) {
       const requestedSite =
         resolveDocumentSiteForWrite(
@@ -664,7 +668,7 @@ const importManualFile = async (req, res) => {
       if (!requestedSite) {
         throw createHttpError(
           400,
-          "Debes seleccionar una sede para consultar el archivo madre B.O.M.",
+          "Debes seleccionar una sede para consultar los archivos madre.",
           {
             code:
               "DOCUMENT_SITE_REQUIRED",
@@ -674,9 +678,10 @@ const importManualFile = async (req, res) => {
 
       const enrichmentResult =
         await masterFileService
-          .enrichBillOfMaterialsRows({
+          .enrichImportedRowsFromMasterFiles({
             user: req.user,
             requestedSite,
+            documentType,
             rows,
           });
 
