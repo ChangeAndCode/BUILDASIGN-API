@@ -28,12 +28,11 @@ const USER_PROTECTED = [
 /**
  * GET /api/master-files
  *
- * Administradores: todas las sedes.
- * Usuarios: únicamente su sede asignada.
+ * Solamente administradores.
  */
 router.get(
   "/",
-  USER_PROTECTED,
+  ADMIN_PROTECTED,
   masterFileController.listMasterFiles,
 );
 
@@ -60,28 +59,22 @@ router.post(
 /**
  * GET /api/master-files/:masterFileId/editor
  *
- * Administradores: cualquier archivo.
- * Usuarios: solamente archivos correspondientes a su sede.
+ * Solamente administradores.
  */
 router.get(
   "/:masterFileId/editor",
-  USER_PROTECTED,
+  ADMIN_PROTECTED,
   masterFileController.getMasterFileEditorData,
 );
 
 /**
  * PUT /api/master-files/:masterFileId/editor
  *
- * Administradores:
- * nombre, sedes y contenido.
- *
- * Usuarios:
- * únicamente contenido de archivos
- * correspondientes a su sede.
+ * Solamente administradores.
  */
 router.put(
   "/:masterFileId/editor",
-  USER_PROTECTED,
+  ADMIN_PROTECTED,
   masterFileController
     .updateMasterFileFromEditor,
 );
@@ -89,12 +82,11 @@ router.put(
 /**
  * GET /api/master-files/:masterFileId/download
  *
- * Administradores: cualquier archivo.
- * Usuarios: solamente archivos asignados a su sede.
+ * Solamente administradores.
  */
 router.get(
   "/:masterFileId/download",
-  USER_PROTECTED,
+  ADMIN_PROTECTED,
   masterFileController.downloadMasterFile,
 );
 
