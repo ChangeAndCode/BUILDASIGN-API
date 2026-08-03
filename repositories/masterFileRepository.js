@@ -2,6 +2,7 @@
 
 const MasterFile = require("../models/MasterFile");
 const MasterRecord = require("../models/MasterRecord");
+const mongoose = require("mongoose");
 
 /**
  * Agrega la sesión de MongoDB solamente cuando existe.
@@ -214,12 +215,21 @@ const findActiveMasterRecordsByMasterFileId =
 /**
  * Recupera los registros necesarios para el editor.
  */
-const findActiveMasterRecordsForEditor = async (masterFileId) => {
-  return MasterRecord.find({
+const findActiveMasterRecordsForEditor = async ({
+  masterFileId,
+  page,
+  pageSize,
+}) => {
+  const filter = {
     masterFileId,
     isDeleted: false,
-  })
+  };
+
+  const [records, totalRecords] = await Promise.all([
+    MasterRecord.find(filter)
     .sort({ sourceRow: 1 })
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .select([
       "_id",
       "partNumber",
@@ -229,7 +239,11 @@ const findActiveMasterRecordsForEditor = async (masterFileId) => {
       "createdAt",
       "updatedAt",
     ].join(" "))
-    .lean();
+    .lean(),
+    MasterRecord.countDocuments(filter),
+  ]);
+
+  return { records, totalRecords };
 };
 
 /**
@@ -381,12 +395,16 @@ const findBomMasterRecordsForBatch =
 const findActiveMasterRecordsForUpdate =
   async (
     masterFileId,
+    recordIds,
     session = null,
   ) => {
     const query =
       MasterRecord.find({
         masterFileId,
         isDeleted: false,
+        _id: {
+          $in: recordIds,
+        },
       })
         .sort({
           sourceRow: 1,
@@ -405,6 +423,53 @@ const findActiveMasterRecordsForUpdate =
 
     return query;
   };
+
+const countActiveMasterRecords = async (
+  masterFileId,
+  session = null,
+) => {
+  const query = MasterRecord.countDocuments({
+    masterFileId,
+    isDeleted: false,
+  });
+
+  if (session) query.session(session);
+  return query;
+};
+
+const countActiveMasterRecordWarnings = async (
+  masterFileId,
+  session = null,
+) => {
+  const aggregate = MasterRecord.aggregate([
+    {
+      $match: {
+        masterFileId:
+          new mongoose.Types.ObjectId(masterFileId),
+        isDeleted: false,
+      },
+    },
+    {
+      $project: {
+        warningCount: {
+          $size: {
+            $ifNull: ["$validationWarnings", []],
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: "$warningCount" },
+      },
+    },
+  ]);
+
+  if (session) aggregate.session(session);
+  const [result] = await aggregate;
+  return result?.total || 0;
+};
 
 /**
  * Obtiene la posición más alta utilizada,
@@ -495,6 +560,8 @@ module.exports = {
   findMasterRecordsByPartNumber,
   findBomMasterRecordsForBatch,
   findActiveMasterRecordsForUpdate,
+  countActiveMasterRecords,
+  countActiveMasterRecordWarnings,
   findHighestMasterRecordSourceRow,
   findActiveMasterRecordsForCopy,
   deleteMasterRecordsByMasterFileId,

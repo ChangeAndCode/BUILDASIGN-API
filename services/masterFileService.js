@@ -1385,6 +1385,8 @@ const assertMasterFileAccess = (
 const getMasterFileEditorData = async ({
   masterFileId,
   user,
+  page = 1,
+  pageSize = 1000,
 }) => {
   if (
     !masterFileId ||
@@ -1419,15 +1421,47 @@ const getMasterFileEditorData = async ({
     );
   }
 
-  const records =
+  const parsedPage = Number.parseInt(page, 10);
+  const parsedPageSize = Number.parseInt(pageSize, 10);
+  const safePage = Number.isInteger(parsedPage) && parsedPage > 0
+    ? parsedPage
+    : 1;
+  const safePageSize = Number.isInteger(parsedPageSize) && parsedPageSize > 0
+    ? Math.min(parsedPageSize, 1000)
+    : 1000;
+
+  const pageResult =
     await masterFileRepository
       .findActiveMasterRecordsForEditor(
-        masterFileId,
+        {
+          masterFileId,
+          page: safePage,
+          pageSize: safePageSize,
+        },
       );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(pageResult.totalRecords / safePageSize),
+  );
+
+  if (safePage > totalPages) {
+    throw createMasterServiceError(
+      "MASTER_EDITOR_PAGE_INVALID",
+      "La página solicitada ya no existe.",
+      404,
+    );
+  }
 
   return {
     masterFile,
-    records,
+    records: pageResult.records,
+    pagination: {
+      page: safePage,
+      pageSize: safePageSize,
+      totalRecords: pageResult.totalRecords,
+      totalPages,
+    },
   };
 };
 
@@ -1481,17 +1515,10 @@ const updateMasterFileFromEditor =
       );
     }
 
-    if (rows.length === 0) {
-      throw createMasterServiceError(
-        "MASTER_EDITOR_ROWS_REQUIRED",
-        "El archivo madre debe conservar al menos una fila.",
-      );
-    }
-
-    if (rows.length > 100000) {
+    if (rows.length > 1000) {
       throw createMasterServiceError(
         "MASTER_EDITOR_ROWS_LIMIT",
-        "El archivo madre excede el límite de filas permitido.",
+        "Sólo se pueden guardar 1,000 filas por página.",
         413,
       );
     }
@@ -1665,6 +1692,17 @@ const updateMasterFileFromEditor =
             await masterFileRepository
               .findActiveMasterRecordsForUpdate(
                 masterFileId,
+                [
+                  ...receivedRecordIds,
+                  ...normalizedDeletedIds,
+                ],
+                session,
+              );
+
+          const currentRecordCount =
+            await masterFileRepository
+              .countActiveMasterRecords(
+                masterFileId,
                 session,
               );
 
@@ -1713,33 +1751,6 @@ const updateMasterFileFromEditor =
                 throw createMasterServiceError(
                   "MASTER_RECORD_NOT_FOUND",
                   "Una de las filas editadas ya no existe o pertenece a otro archivo.",
-                  409,
-                );
-              }
-            },
-          );
-
-          const receivedIdsSet =
-            new Set(
-              receivedRecordIds,
-            );
-
-          currentRecords.forEach(
-            (record) => {
-              const recordId =
-                String(record._id);
-
-              if (
-                !receivedIdsSet.has(
-                  recordId,
-                ) &&
-                !deletedIdsSet.has(
-                  recordId,
-                )
-              ) {
-                throw createMasterServiceError(
-                  "MASTER_RECORD_SET_INCOMPLETE",
-                  "El contenido enviado por el editor está incompleto. Recarga la página.",
                   409,
                 );
               }
@@ -1846,8 +1857,25 @@ const updateMasterFileFromEditor =
                 preparedRow.recordData,
             );
 
+          const insertedRecordCount =
+            preparedRows.filter(
+              (row) => !row.id,
+            ).length;
+          const nextRecordCount =
+            currentRecordCount +
+            insertedRecordCount -
+            normalizedDeletedIds.length;
+
+          if (nextRecordCount < 1) {
+            throw createMasterServiceError(
+              "MASTER_EDITOR_ROWS_REQUIRED",
+              "El archivo madre debe conservar al menos una fila.",
+            );
+          }
+
           applyEditorDuplicateWarnings(
             finalRecords,
+            masterFile.masterType,
           );
 
           const now =
@@ -1909,6 +1937,27 @@ const updateMasterFileFromEditor =
               },
             );
 
+          const sitesChanged =
+            JSON.stringify([...(masterFile.sites || [])].sort()) !==
+            JSON.stringify([...nextSites].sort());
+
+          if (sitesChanged) {
+            operations.unshift({
+              updateMany: {
+                filter: {
+                  masterFileId,
+                  isDeleted: false,
+                },
+                update: {
+                  $set: {
+                    sites: nextSites,
+                    updatedBy: editorUserId,
+                  },
+                },
+              },
+            });
+          }
+
           normalizedDeletedIds.forEach(
             (recordId) => {
               operations.push({
@@ -1945,19 +1994,11 @@ const updateMasterFileFromEditor =
             );
 
           const warningCount =
-            finalRecords.reduce(
-              (
-                totalWarnings,
-                record,
-              ) =>
-                totalWarnings +
-                (
-                  record
-                    .validationWarnings
-                    ?.length || 0
-                ),
-              0,
-            );
+            await masterFileRepository
+              .countActiveMasterRecordWarnings(
+                masterFileId,
+                session,
+              );
 
           const updatedMasterFile =
             await masterFileRepository
@@ -1970,7 +2011,7 @@ const updateMasterFileFromEditor =
                   sites:
                     nextSites,
                   recordCount:
-                    finalRecords.length,
+                    nextRecordCount,
                   warningCount,
                   updatedBy:
                     editorUserId,
@@ -1991,9 +2032,7 @@ const updateMasterFileFromEditor =
               updatedMasterFile,
 
             insertedRecordCount:
-              preparedRows.filter(
-                (row) => !row.id,
-              ).length,
+              insertedRecordCount,
 
             updatedRecordCount:
               preparedRows.filter(

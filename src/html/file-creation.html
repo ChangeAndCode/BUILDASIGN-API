@@ -24,14 +24,19 @@
       </select>
     </div>
 
-    <div id="lookupSiteGroup" class="form-group hidden">
-      <label for="lookupSite" style="font-weight: bold;">
-        Localidad para consultar Master Files:
+    <div id="fileCreationSiteGroup" class="form-group hidden">
+      <label for="fileCreationSite" style="font-weight: bold;">
+        Sede para crear el archivo:
       </label>
-      <select id="lookupSite" style="margin-top: 10px;">
+      <select id="fileCreationSite" style="margin-top: 10px;">
+        <option value="">-- Seleccione la sede --</option>
         <option value="local-01">Local 01</option>
         <option value="local-02">Local 02</option>
       </select>
+      <small
+        id="fileCreationSiteHelp"
+        class="file-creation-site-help"
+      ></small>
     </div>
 
     <div
@@ -98,6 +103,18 @@
         </table>
       </div>
     </div>
+
+    <nav
+      id="fileCreationPagination"
+      class="creation-pagination hidden"
+      aria-label="Paginación de filas"
+    >
+      <button type="button" id="fileCreationFirstPage" aria-label="Primera página" title="Primera página">&laquo;</button>
+      <button type="button" id="fileCreationPreviousPage" aria-label="Página anterior" title="Página anterior">&lsaquo;</button>
+      <span id="fileCreationPageSummary" aria-live="polite"></span>
+      <button type="button" id="fileCreationNextPage" aria-label="Página siguiente" title="Página siguiente">&rsaquo;</button>
+      <button type="button" id="fileCreationLastPage" aria-label="Última página" title="Última página">&raquo;</button>
+    </nav>
 
     <div class="creation-actions-row">
       <button id="createFileButton">
