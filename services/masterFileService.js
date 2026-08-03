@@ -1279,6 +1279,12 @@ const enrichImportedRowsFromMasterFiles = async ({
   const partNumbers = [
     ...new Set(
       safeRows
+        .filter((row) => {
+          if (documentType !== "splScrap") return true;
+          return ["FG", "RM"].includes(
+            normalizeValue(row["Type of goods"]),
+          );
+        })
         .map((row) => normalizeValue(row["Part Number"]))
         .filter(Boolean),
     ),
@@ -1337,7 +1343,24 @@ const enrichImportedRowsFromMasterFiles = async ({
       return;
     }
 
-    const candidates = masterTypes.map(
+    let rowMasterTypes = masterTypes;
+
+    if (documentType === "splScrap") {
+      const typeOfGoods = normalizeValue(row["Type of goods"]);
+
+      if (typeOfGoods === "FG") {
+        rowMasterTypes = ["finishedProduct"];
+      } else if (typeOfGoods === "RM") {
+        rowMasterTypes = ["rawMaterial"];
+      } else {
+        // EQ y cualquier tipo no reconocido corresponden a partes
+        // que no deben consultarse en los archivos madre actuales.
+        missingRows += 1;
+        return;
+      }
+    }
+
+    const candidates = rowMasterTypes.map(
       (masterType) => selectLatestCandidate(partNumber, masterType),
     );
     const hasAmbiguousCandidate = candidates.some(

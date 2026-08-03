@@ -3675,6 +3675,28 @@ async function startManualImport() {
     importFileInput.value = "";
     return;
   }
+
+  const selectedTypeOfGoods =
+    fileType.value === "splScrap"
+      ? String(
+          splMetaInputs["Type of goods"]?.value || "",
+        ).trim().toUpperCase()
+      : "";
+
+  if (
+    fileType.value === "splScrap" &&
+    !["FG", "RM", "EQ"].includes(selectedTypeOfGoods)
+  ) {
+    renderErrorList([
+      {
+        message:
+          "Selecciona Type of goods (FG, RM o EQ) antes de cargar el archivo.",
+      },
+    ]);
+    splMetaInputs["Type of goods"]?.focus();
+    importFileInput.value = "";
+    return;
+  }
   const selectedSite =
     getSelectedFileCreationSite();
   if (!selectedSite) {
@@ -3711,6 +3733,12 @@ async function startManualImport() {
       "site",
       selectedSite,
     );
+    if (selectedTypeOfGoods) {
+      formData.append(
+        "typeOfGoods",
+        selectedTypeOfGoods,
+      );
+    }
 
     const response = await fetch("/api/files/import-manual", {
       method: "POST",

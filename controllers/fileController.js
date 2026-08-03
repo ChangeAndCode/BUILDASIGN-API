@@ -651,6 +651,38 @@ const importManualFile = async (req, res) => {
 
     let masterLookupSummary = null;
 
+    if (documentType === "splScrap") {
+      const selectedTypeOfGoods = String(
+        req.body.typeOfGoods || "",
+      ).trim().toUpperCase();
+
+      if (!["FG", "RM", "EQ"].includes(selectedTypeOfGoods)) {
+        throw createHttpError(
+          400,
+          "Debes seleccionar Type of goods (FG, RM o EQ).",
+          { code: "TYPE_OF_GOODS_REQUIRED" },
+        );
+      }
+
+      const shipmentFields = [
+        "Customer(southbound) / Ship to (northbound)",
+        "Type of shipment",
+        "Expected date of arrival",
+        "Waybill number",
+        "Total gross weight",
+        "Total bundles",
+      ];
+
+      rows = rows.map((row) => {
+        const cleanRow = { ...(row || {}) };
+        shipmentFields.forEach((fieldName) => {
+          cleanRow[fieldName] = "";
+        });
+        cleanRow["Type of goods"] = selectedTypeOfGoods;
+        return cleanRow;
+      });
+    }
+
     if (
       [
         "finishedProduct",
