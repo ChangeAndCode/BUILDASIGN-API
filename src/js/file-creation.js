@@ -1551,7 +1551,7 @@ function buildMasterAutofillValues(
   ) {
     return {
       type:
-        normalizedValues.bomType,
+        normalizedValues.componentType,
 
       quantity:
         normalizedValues.quantity,
@@ -1790,7 +1790,7 @@ async function runMasterLookup(
 
   try {
     const response = await fetch(
-      `/api/master-files/lookup?${query.toString()}`,
+      `/api/master-files/lookup/part-number?${query.toString()}`,
       {
         signal: controller.signal,
       },

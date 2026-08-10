@@ -66,6 +66,8 @@ const billOfMaterialsSchemaSpec = [
     item: 1,
     dataElement: "Finished Good Part Number",
     aliases: [
+      "Finish Goods",
+      "Finished Goods",
       "FG Part Number",
       "Parent Part Number",
       "Parent SKU",
@@ -86,6 +88,8 @@ const billOfMaterialsSchemaSpec = [
     item: 2,
     dataElement: "Component Part Number",
     aliases: [
+      "PN",
+      "Component PN",
       "Component SKU",
       "Child Part Number",
       "Raw Material Part Number",
@@ -120,7 +124,7 @@ const billOfMaterialsSchemaSpec = [
   {
     item: 4,
     dataElement: "Quantity",
-    aliases: ["Qty", "BOM Quantity", "Quantity Per"],
+    aliases: ["QTY", "Qty", "BOM Quantity", "Quantity Per"],
     type: "N",
     length: 17,
     position: "62-78",

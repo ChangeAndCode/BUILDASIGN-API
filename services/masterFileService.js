@@ -681,7 +681,7 @@ const lookupMasterRecordByPartNumber =
 
             return JSON.stringify([
               String(
-                values.bomType ?? "",
+                values.componentType ?? "",
               )
                 .trim()
                 .toUpperCase(),
@@ -1001,8 +1001,7 @@ const enrichBillOfMaterialsRows =
 
                 return JSON.stringify([
                   normalizeValue(
-                    values.bomType ||
-                      values.componentType,
+                    values.componentType,
                   ),
 
                   String(
@@ -1071,8 +1070,7 @@ const enrichBillOfMaterialsRows =
         const valuesToFill = [
           [
             "Type",
-            normalizedValues.bomType ||
-              normalizedValues.componentType,
+            normalizedValues.componentType,
           ],
           [
             "Quantity",

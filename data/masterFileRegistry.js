@@ -523,35 +523,42 @@ const RAW_MATERIAL_HEADER_RULES = Object.freeze({
  * renombrarlo. Se detecta usando la hoja y los encabezados.
  */
 const BILL_OF_MATERIALS_HEADER_RULES = Object.freeze({
-  finishedgoodpartnumber: {
-    target: "partNumber",
-    transform: "partNumber",
-  },
+  finishedgoodpartnumber: { target: "partNumber", transform: "partNumber" },
+  finishgoods: { target: "partNumber", transform: "partNumber" },
+  finishedgoods: { target: "partNumber", transform: "partNumber" },
+  fgpartnumber: { target: "partNumber", transform: "partNumber" },
+  parentpartnumber: { target: "partNumber", transform: "partNumber" },
+  parentsku: { target: "partNumber", transform: "partNumber" },
+  assemblysku: { target: "partNumber", transform: "partNumber" },
+  finishedgoodsku: { target: "partNumber", transform: "partNumber" },
 
-  componentpartnumber: {
-    target: "componentPartNumber",
-    transform: "partNumber",
-  },
+  componentpartnumber: { target: "componentPartNumber", transform: "partNumber" },
+  pn: { target: "componentPartNumber", transform: "partNumber" },
+  componentpn: { target: "componentPartNumber", transform: "partNumber" },
+  componentsku: { target: "componentPartNumber", transform: "partNumber" },
+  childpartnumber: { target: "componentPartNumber", transform: "partNumber" },
+  rawmaterialpartnumber: { target: "componentPartNumber", transform: "partNumber" },
+  rmpartnumber: { target: "componentPartNumber", transform: "partNumber" },
 
-  type: {
-    target: "componentType",
-    transform: "uppercaseText",
-  },
+  type: { target: "componentType", transform: "uppercaseText" },
+  componenttype: { target: "componentType", transform: "uppercaseText" },
+  itemtype: { target: "componentType", transform: "uppercaseText" },
 
-  quantity: {
-    target: "quantity",
-    transform: "number",
-  },
+  quantity: { target: "quantity", transform: "number" },
+  qty: { target: "quantity", transform: "number" },
+  bomquantity: { target: "quantity", transform: "number" },
+  quantityper: { target: "quantity", transform: "number" },
 
-  unitofmeasure: {
-    target: "unitOfMeasure",
-    transform: "uom",
-  },
+  unitofmeasure: { target: "unitOfMeasure", transform: "uom" },
+  uom: { target: "unitOfMeasure", transform: "uom" },
+  unit: { target: "unitOfMeasure", transform: "uom" },
 
   componentclassification: {
     target: "componentClassification",
     transform: "text",
   },
+  classification: { target: "componentClassification", transform: "text" },
+  componentclass: { target: "componentClassification", transform: "text" },
 });
 
 const FINISHED_PRODUCT_CANONICAL_HEADERS = Object.freeze([
@@ -581,7 +588,6 @@ const FINISHED_PRODUCT_CANONICAL_HEADERS = Object.freeze([
   "Period (To)",
   "USML (ITAR)",
 ]);
-
 const RAW_MATERIAL_CANONICAL_HEADERS = Object.freeze([
   "Part Number",
   "Description",
@@ -642,6 +648,11 @@ const MASTER_FILE_REGISTRY = Object.freeze({
       "description",
     ],
 
+    requiredMappedFields: [
+      "partNumber",
+      "description",
+    ],
+
     headerRules: FINISHED_PRODUCT_HEADER_RULES,
   }),
 
@@ -678,6 +689,11 @@ const MASTER_FILE_REGISTRY = Object.freeze({
       "description",
     ],
 
+    requiredMappedFields: [
+      "partNumber",
+      "description",
+    ],
+
     headerRules: RAW_MATERIAL_HEADER_RULES,
   }),
 
@@ -701,6 +717,9 @@ const MASTER_FILE_REGISTRY = Object.freeze({
 
     partNumberHeaderKeys: [
       "finishedgoodpartnumber",
+      "finishgoods",
+      "finishedgoods",
+      "fgpartnumber",
     ],
 
     ignoredHeaderKeys: [],
@@ -711,6 +730,14 @@ const MASTER_FILE_REGISTRY = Object.freeze({
       "type",
       "quantity",
       "unitofmeasure",
+    ],
+
+    requiredMappedFields: [
+      "partNumber",
+      "componentPartNumber",
+      "componentType",
+      "quantity",
+      "unitOfMeasure",
     ],
 
     headerRules: BILL_OF_MATERIALS_HEADER_RULES,
