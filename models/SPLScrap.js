@@ -2,6 +2,9 @@
 const mongoose = require("mongoose");
 const { VALID_SITES } = require("../data/siteConfig");
 const { sftpDeliverySchema } = require("./sftpDeliverySchema");
+const {
+  createMasterFileSyncSchema,
+} = require("./masterFileSyncSchema");
 
 const ALLOW_EMPTY_MANDATORY_FIELDS =
   (process.env.ALLOW_EMPTY_MANDATORY_FIELDS || "true").toLowerCase() ===
@@ -538,6 +541,12 @@ splScrapMongooseSchema.add({
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   sourceJobId: { type: mongoose.Schema.Types.ObjectId, ref: "ConversionJob" },
   sftpDelivery: { type: sftpDeliverySchema, default: () => ({}) },
+  masterFileSync: {
+    type: createMasterFileSyncSchema({
+      defaultStatus: "not_applicable",
+    }),
+    default: () => ({}),
+  },
   rows: { type: [mongoose.Schema.Types.Mixed], default: [] },
 });
 

@@ -65,6 +65,11 @@ const FINISHED_PRODUCT_HEADER_RULES = Object.freeze({
     transform: "number",
   },
 
+  dutiablevalueusd: {
+    target: "dutiableValueUsd",
+    transform: "number",
+  },
+
   dutiablevalue: {
     target: "dutiableValueUsd",
     transform: "number",
@@ -115,6 +120,11 @@ const FINISHED_PRODUCT_HEADER_RULES = Object.freeze({
     transform: "text",
   },
 
+  usmlitar: {
+    target: "usmlItar",
+    transform: "text",
+  },
+
   fdaproductcode: {
     target: "fdaProductCode",
     transform: "text",
@@ -129,6 +139,11 @@ const FINISHED_PRODUCT_HEADER_RULES = Object.freeze({
     target: "fdaCountryOfOrigin",
     transform: "country",
   },
+  fdacountryoforigin: {
+    target: "fdaCountryOfOrigin",
+    transform: "country",
+  },
+
 
   fdamarker: {
     target: "fdaMarker",
@@ -217,6 +232,36 @@ const FINISHED_PRODUCT_HEADER_RULES = Object.freeze({
     transform: "fdaAffirmation",
     sequence: 6,
     component: "qualifier",
+  },
+
+  nafta: {
+    target: "nafta",
+    transform: "uppercaseText",
+  },
+
+  preferencecriterion: {
+    target: "preferenceCriterion",
+    transform: "uppercaseText",
+  },
+
+  producer: {
+    target: "producer",
+    transform: "text",
+  },
+
+  netcost: {
+    target: "netCost",
+    transform: "uppercaseText",
+  },
+
+  periodfrom: {
+    target: "periodFrom",
+    transform: "date",
+  },
+
+  periodto: {
+    target: "periodTo",
+    transform: "date",
   },
 
   descriptionforcustomspurposes: {
@@ -502,13 +547,73 @@ const BILL_OF_MATERIALS_HEADER_RULES = Object.freeze({
     target: "unitOfMeasure",
     transform: "uom",
   },
+
+  componentclassification: {
+    target: "componentClassification",
+    transform: "text",
+  },
 });
+
+const FINISHED_PRODUCT_CANONICAL_HEADERS = Object.freeze([
+  "Part Number",
+  "Description",
+  "Unit Weight Lb.",
+  "Dutiable Value (USD)",
+  "Filler",
+  "Added Value (USD)",
+  "Unit of Measure",
+  "Country of Origin",
+  "USA Importation HTS Code",
+  "USA Exportation Code",
+  "FDA Product Code",
+  "FDA Storage",
+  "FDA Country of Origin",
+  "FDA Marker",
+  ...Array.from({ length: 6 }, (_, index) => [
+    `FDA Affirmation of Compliance Code ${index + 1}`,
+    `FDA Affirmation of Compliance Qualifier ${index + 1}`,
+  ]).flat(),
+  "NAFTA",
+  "Preference Criterion",
+  "Producer",
+  "Net Cost",
+  "Period (From)",
+  "Period (To)",
+  "USML (ITAR)",
+]);
+
+const RAW_MATERIAL_CANONICAL_HEADERS = Object.freeze([
+  "Part Number",
+  "Description",
+  "Unit Weight Lb.",
+  "Unit Cost (USD)",
+  "Unit of Measure",
+  "Country of Origin",
+  "Importation HTS Code",
+  "Exportation HTS Code",
+  "ECCN",
+  "Filler",
+  "License Number (LCN)",
+  "License Exception",
+  "License Expiration date",
+  "USML (ITAR)",
+]);
+
+const BILL_OF_MATERIALS_CANONICAL_HEADERS = Object.freeze([
+  "Finished Good Part Number",
+  "Component Part Number",
+  "Type",
+  "Quantity",
+  "Unit of Measure",
+  "Component classification",
+]);
 
 const MASTER_FILE_REGISTRY = Object.freeze({
   [MASTER_TYPES.FINISHED_PRODUCT]: Object.freeze({
     masterType: MASTER_TYPES.FINISHED_PRODUCT,
 
     displayName: "Finished Goods",
+    canonicalHeaders: FINISHED_PRODUCT_CANONICAL_HEADERS,
 
     sheetNames: [
       "FS E",
@@ -544,6 +649,7 @@ const MASTER_FILE_REGISTRY = Object.freeze({
     masterType: MASTER_TYPES.RAW_MATERIAL,
 
     displayName: "Raw Material",
+    canonicalHeaders: RAW_MATERIAL_CANONICAL_HEADERS,
 
     sheetNames: [
       "RM E",
@@ -579,6 +685,7 @@ const MASTER_FILE_REGISTRY = Object.freeze({
     masterType: MASTER_TYPES.BILL_OF_MATERIALS,
 
     displayName: "Bill of Materials",
+    canonicalHeaders: BILL_OF_MATERIALS_CANONICAL_HEADERS,
 
     sheetNames: [
       "BOM E",
@@ -680,11 +787,85 @@ const shouldIgnoreMasterHeader = (
   );
 };
 
+const toExcelColumnLetter = (columnIndex) => {
+  let value = Number(columnIndex);
+  let result = "";
+
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+
+  return result;
+};
+
+const getCanonicalMasterHeaders = (masterType) => {
+  const config = getMasterFileConfig(masterType);
+
+  return config.canonicalHeaders.map((originalName, index) => {
+    const normalizedName = normalizeMasterHeader(originalName);
+    const rule = config.headerRules[normalizedName];
+
+    if (!rule) {
+      throw new Error(
+        `El encabezado canonico "${originalName}" no tiene una regla para "${masterType}".`,
+      );
+    }
+
+    const columnIndex = index + 1;
+    return {
+      originalName,
+      normalizedName,
+      columnIndex,
+      columnLetter: toExcelColumnLetter(columnIndex),
+      mappedField: rule.target,
+      ignored: false,
+    };
+  });
+};
+
+const filterMasterNormalizedValues = (
+  masterType,
+  normalizedValues = {},
+) => {
+  const sourceValues =
+    typeof normalizedValues?.toObject === "function"
+      ? normalizedValues.toObject()
+      : normalizedValues;
+
+  if (
+    !sourceValues ||
+    typeof sourceValues !== "object" ||
+    Array.isArray(sourceValues)
+  ) {
+    return {};
+  }
+
+  const allowedFields = new Set(
+    getCanonicalMasterHeaders(masterType)
+      .map((header) => header.mappedField)
+      .filter((target) => target !== "partNumber"),
+  );
+
+  if (allowedFields.has("unitNetWeight")) {
+    allowedFields.add("unitNetWeightSourceUnit");
+  }
+
+  return Object.fromEntries(
+    Object.entries(sourceValues).filter(([field]) =>
+      allowedFields.has(field),
+    ),
+  );
+};
+
 module.exports = {
   MASTER_TYPES,
   MASTER_FILE_REGISTRY,
   normalizeMasterHeader,
   getMasterFileConfig,
+  getCanonicalMasterHeaders,
+  filterMasterNormalizedValues,
   detectMasterTypeBySheetNames,
   getMasterHeaderRule,
   shouldIgnoreMasterHeader,

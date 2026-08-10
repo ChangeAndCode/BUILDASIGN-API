@@ -122,6 +122,12 @@ const normalizedValuesSchema = new mongoose.Schema(
       type: Number,
     },
 
+    componentClassification: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     unitNetWeight: {
       type: Number,
     },
@@ -256,6 +262,41 @@ const normalizedValuesSchema = new mongoose.Schema(
       type: [fdaAffirmationSchema],
       default: [],
     },
+    nafta: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    preferenceCriterion: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    producer: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    netCost: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+
+    periodFrom: {
+      type: Date,
+    },
+
+    periodTo: {
+      type: Date,
+    },
+
 
     descriptionForCustoms: {
       type: String,
