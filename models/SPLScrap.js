@@ -1,6 +1,7 @@
 // models/SPLScrap.js
 const mongoose = require("mongoose");
 const { VALID_SITES } = require("../data/siteConfig");
+const { sftpDeliverySchema } = require("./sftpDeliverySchema");
 
 const ALLOW_EMPTY_MANDATORY_FIELDS =
   (process.env.ALLOW_EMPTY_MANDATORY_FIELDS || "true").toLowerCase() ===
@@ -536,6 +537,7 @@ splScrapMongooseSchema.add({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   sourceJobId: { type: mongoose.Schema.Types.ObjectId, ref: "ConversionJob" },
+  sftpDelivery: { type: sftpDeliverySchema, default: () => ({}) },
   rows: { type: [mongoose.Schema.Types.Mixed], default: [] },
 });
 

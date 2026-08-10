@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { VALID_SITES } = require("../data/siteConfig");
+const { sftpDeliverySchema } = require("./sftpDeliverySchema");
 
 // Helper function to create schema fields from your spec
 const ALLOW_EMPTY_MANDATORY_FIELDS =
@@ -283,6 +284,7 @@ rawMaterialMongooseSchema.add({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   sourceJobId: { type: mongoose.Schema.Types.ObjectId, ref: "ConversionJob" },
+  sftpDelivery: { type: sftpDeliverySchema, default: () => ({}) },
   rows: { type: [mongoose.Schema.Types.Mixed], default: [] },
 });
 
