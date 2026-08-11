@@ -102,6 +102,7 @@ export const createTableFilter = ({
   let activeColumns = [];
   let selectedColumnKeys = new Set();
   let isDestroyed = false;
+  let isDisabled = false;
 
   const root = createElement(
     "section",
@@ -248,6 +249,7 @@ export const createTableFilter = ({
 
     if (allCheckbox) {
       allCheckbox.checked = allSelected;
+      allCheckbox.disabled = isDisabled;
       allCheckbox.indeterminate =
         selectedColumnKeys.size > 0 &&
         !allSelected;
@@ -263,6 +265,7 @@ export const createTableFilter = ({
             checkbox.dataset
               .tableFilterColumn,
           );
+        checkbox.disabled = isDisabled;
       });
 
     if (allSelected) {
@@ -292,8 +295,9 @@ export const createTableFilter = ({
     }
 
     clearButton.disabled =
-      searchInput.value === "" &&
-      allSelected;
+      isDisabled ||
+      (searchInput.value === "" &&
+        allSelected);
   };
 
   const createCheckboxOption = ({
@@ -504,6 +508,23 @@ export const createTableFilter = ({
     columns: activeColumns.slice(),
   });
 
+  const setDisabled = (disabled) => {
+    isDisabled = Boolean(disabled);
+    columnsButton.disabled = isDisabled;
+    searchInput.disabled = isDisabled;
+
+    if (isDisabled) {
+      closeColumnsMenu();
+    }
+
+    syncColumnControls();
+  };
+
+  const setResultSummary = (value) => {
+    resultStatus.textContent =
+      String(value ?? "");
+  };
+
   const handleDocumentClick = (event) => {
     if (!root.contains(event.target)) {
       closeColumnsMenu();
@@ -614,7 +635,9 @@ export const createTableFilter = ({
     root,
     searchInput,
     selectColumns,
+    setDisabled,
     setColumns,
+    setResultSummary,
   };
 };
 
