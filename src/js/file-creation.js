@@ -1,3 +1,5 @@
+import { createTableFilter } from "./table-filter.js";
+
 const fileType = document.getElementById("fileType");
 const sections = document.querySelectorAll(".format-section");
 const createFileButton = document.getElementById("createFileButton");
@@ -31,6 +33,20 @@ let activeCreationDocumentType = "";
 
 function canAddCreationRow(documentType) {
   if (renderingCreationPage) return true;
+  if (
+    isCreationTableFilterActive(
+      documentType,
+    )
+  ) {
+    renderErrorList([
+      {
+        message:
+          "Limpia el filtro antes de agregar filas.",
+      },
+    ]);
+    return false;
+  }
+
   const state = fileCreationPageState[documentType];
   if (!state || !Array.isArray(state.rows)) return true;
   const totalPages = Math.max(
@@ -453,6 +469,24 @@ const splTable = document.getElementById("splTable");
 const splHead = splTable ? splTable.querySelector("thead") : null;
 const splBody = splTable ? splTable.querySelector("tbody") : null;
 const splAddRowBtn = document.getElementById("splAddRowBtn");
+const splTableFilterContainer =
+  document.getElementById(
+    "splTableFilter",
+  );
+const fpTableFilterContainer =
+  document.getElementById(
+    "fpTableFilter",
+  );
+const rmTableFilterContainer =
+  document.getElementById(
+    "rmTableFilter",
+  );
+const bmTableFilterContainer =
+  document.getElementById(
+    "bmTableFilter",
+  );
+const creationTableFilters = {};
+const creationTableFilterSignatures = {};
 const splMetaContainer = document.getElementById("splMetaFields");
 const splMetaInputs = {};
 let splInitialized = false;
@@ -2247,9 +2281,10 @@ function buildFinishedProductTable() {
   fpHead.appendChild(headerRow);
 
   fpBody.innerHTML = "";
-  for (let i = 0; i < 5; i++) {
-    addFinishedProductRow();
-  }
+  initializeCreationPagination(
+    "finishedProduct",
+    Array.from({ length: 5 }, () => ({})),
+  );
   updateTableScroll(fpBody);
 }
 
@@ -2275,9 +2310,10 @@ function buildRawMaterialTable() {
   rmHead.appendChild(headerRow);
 
   rmBody.innerHTML = "";
-  for (let i = 0; i < 5; i++) {
-    addRawMaterialRow();
-  }
+  initializeCreationPagination(
+    "rawMaterial",
+    Array.from({ length: 5 }, () => ({})),
+  );
   updateTableScroll(rmBody);
 }
 
@@ -2417,9 +2453,7 @@ function addFinishedProductRow(values = {}) {
   removeBtn.textContent = "Eliminar";
   removeBtn.addEventListener("click", () => {
     row.remove();
-    if (fpBody.children.length === 0) {
-      addFinishedProductRow();
-    }
+    handleCreationRowRemoval("finishedProduct");
   });
   actionsTd.appendChild(removeBtn);
   row.appendChild(actionsTd);
@@ -2460,18 +2494,258 @@ function readVisibleCreationRows(documentType) {
     config.columns.forEach((column, index) => {
       row[column.label] = editors[index]?.value || "";
     });
-    return row;
+    const sourceIndex = Number(
+      tr.dataset.creationSourceIndex,
+    );
+
+    return {
+      element: tr,
+      row,
+      sourceIndex:
+        tr.dataset.creationSourceIndex !==
+          undefined &&
+        Number.isInteger(sourceIndex)
+          ? sourceIndex
+          : null,
+    };
   });
+}
+
+function isCreationTableFilterActive(
+  documentType,
+) {
+  const filter =
+    creationTableFilters[documentType];
+  const state = filter?.getState();
+
+  return Boolean(
+    String(state?.query || "").trim(),
+  );
+}
+
+function getFilteredCreationEntries(
+  documentType,
+) {
+  const state =
+    fileCreationPageState[documentType];
+
+  if (
+    !state ||
+    !Array.isArray(state.rows)
+  ) {
+    return [];
+  }
+
+  const filter =
+    creationTableFilters[documentType];
+  const filteredRows = filter
+    ? filter.filterItems(state.rows)
+    : state.rows;
+  const sourceIndexByRow = new Map();
+
+  state.rows.forEach((row, index) => {
+    sourceIndexByRow.set(row, index);
+  });
+
+  return filteredRows.map((row) => ({
+    row,
+    sourceIndex:
+      sourceIndexByRow.get(row),
+  }));
+}
+
+function getCreationFilterSignature(
+  detail,
+) {
+  return JSON.stringify({
+    query: String(detail?.query || ""),
+    selectedColumnKeys: Array.from(
+      detail?.selectedColumnKeys || [],
+    ).sort(),
+  });
+}
+
+function getCreationFilterColumns(
+  documentType,
+) {
+  const config =
+    getCreationPaginationConfig(
+      documentType,
+    );
+
+  return (config?.columns || []).map(
+    (column) => ({
+      key: column.key,
+      label: column.label,
+      getValue: (row) =>
+        row?.[column.label],
+    }),
+  );
+}
+
+function initializeCreationTableFilters() {
+  const configurations = [
+    {
+      documentType: "finishedProduct",
+      container: fpTableFilterContainer,
+    },
+    {
+      documentType: "rawMaterial",
+      container: rmTableFilterContainer,
+    },
+    {
+      documentType: "billOfMaterials",
+      container: bmTableFilterContainer,
+    },
+    {
+      documentType: "splScrap",
+      container: splTableFilterContainer,
+    },
+  ];
+
+  configurations.forEach(
+    ({ documentType, container }) => {
+      if (!container) {
+        return;
+      }
+
+      creationTableFilters[documentType] =
+        createTableFilter({
+          container,
+          columns:
+            getCreationFilterColumns(
+              documentType,
+            ),
+          beforeApply: () => {
+            persistVisibleCreationPage(
+              documentType,
+            );
+          },
+          getItems: () => {
+            const state =
+              fileCreationPageState[
+                documentType
+              ];
+
+            return Array.isArray(
+              state?.rows,
+            )
+              ? state.rows
+              : [];
+          },
+          onChange: (detail) => {
+            const signature =
+              getCreationFilterSignature(
+                detail,
+              );
+            const filterChanged =
+              creationTableFilterSignatures[
+                documentType
+              ] !== signature;
+
+            creationTableFilterSignatures[
+              documentType
+            ] = signature;
+
+            const state =
+              fileCreationPageState[
+                documentType
+              ];
+
+            if (
+              !state ||
+              !Array.isArray(state.rows)
+            ) {
+              return;
+            }
+
+            if (filterChanged) {
+              state.page = 1;
+            }
+
+            renderCreationPage(
+              documentType,
+            );
+          },
+        });
+    },
+  );
 }
 
 function persistVisibleCreationPage(documentType) {
   if (renderingCreationPage) return;
   const state = fileCreationPageState[documentType];
   if (!state || !Array.isArray(state.rows)) return;
-  const startIndex = (state.page - 1) * FILE_CREATION_PAGE_SIZE;
-  const visibleRows = readVisibleCreationRows(documentType);
-  state.rows.splice(startIndex, state.renderedCount, ...visibleRows);
-  state.renderedCount = visibleRows.length;
+
+  const visibleEntries =
+    readVisibleCreationRows(documentType);
+  const renderedSourceIndexes = new Set(
+    state.renderedSourceIndexes || [],
+  );
+  const retainedSourceIndexes = new Set();
+  const newRows = [];
+
+  visibleEntries.forEach(
+    ({ row, sourceIndex }) => {
+      if (
+        Number.isInteger(sourceIndex) &&
+        renderedSourceIndexes.has(
+          sourceIndex,
+        ) &&
+        sourceIndex >= 0 &&
+        sourceIndex < state.rows.length
+      ) {
+        state.rows[sourceIndex] = row;
+        retainedSourceIndexes.add(
+          sourceIndex,
+        );
+        return;
+      }
+
+      if (sourceIndex === null) {
+        newRows.push(row);
+      }
+    },
+  );
+
+  Array.from(renderedSourceIndexes)
+    .filter(
+      (sourceIndex) =>
+        !retainedSourceIndexes.has(
+          sourceIndex,
+        ),
+    )
+    .sort((first, second) => second - first)
+    .forEach((sourceIndex) => {
+      state.rows.splice(sourceIndex, 1);
+    });
+
+  state.rows.push(...newRows);
+
+  const currentSourceIndexes = [];
+  visibleEntries.forEach(
+    ({ element, row }) => {
+      const sourceIndex =
+        state.rows.indexOf(row);
+
+      if (sourceIndex < 0) {
+        delete element.dataset
+          .creationSourceIndex;
+        return;
+      }
+
+      element.dataset.creationSourceIndex =
+        String(sourceIndex);
+      currentSourceIndexes.push(
+        sourceIndex,
+      );
+    },
+  );
+
+  state.renderedSourceIndexes =
+    currentSourceIndexes;
+  state.renderedCount =
+    visibleEntries.length;
 }
 
 function renderCreationPagination(documentType) {
@@ -2481,7 +2755,10 @@ function renderCreationPagination(documentType) {
     return;
   }
 
-  const totalRecords = state.rows.length;
+  const totalRecords =
+    getFilteredCreationEntries(
+      documentType,
+    ).length;
   const totalPages = Math.max(1, Math.ceil(totalRecords / FILE_CREATION_PAGE_SIZE));
   state.page = Math.min(Math.max(state.page, 1), totalPages);
   const firstRecord = totalRecords ? ((state.page - 1) * FILE_CREATION_PAGE_SIZE) + 1 : 0;
@@ -2501,16 +2778,84 @@ function renderCreationPage(documentType) {
   const config = getCreationPaginationConfig(documentType);
   if (!state || !Array.isArray(state.rows) || !config?.tbody) return;
 
-  const totalPages = Math.max(1, Math.ceil(state.rows.length / FILE_CREATION_PAGE_SIZE));
-  state.page = Math.min(Math.max(state.page, 1), totalPages);
-  const startIndex = (state.page - 1) * FILE_CREATION_PAGE_SIZE;
-  const pageRows = state.rows.slice(startIndex, startIndex + FILE_CREATION_PAGE_SIZE);
+  const filteredEntries =
+    getFilteredCreationEntries(
+      documentType,
+    );
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      filteredEntries.length /
+        FILE_CREATION_PAGE_SIZE,
+    ),
+  );
+  state.page = Math.min(
+    Math.max(state.page, 1),
+    totalPages,
+  );
+  const startIndex =
+    (state.page - 1) *
+    FILE_CREATION_PAGE_SIZE;
+  const pageEntries =
+    filteredEntries.slice(
+      startIndex,
+      startIndex +
+        FILE_CREATION_PAGE_SIZE,
+    );
+  const renderEntries =
+    pageEntries.length > 0
+      ? pageEntries
+      : isCreationTableFilterActive(
+            documentType,
+          )
+        ? []
+        : [
+            {
+              row: {},
+              sourceIndex: null,
+            },
+          ];
 
   renderingCreationPage = true;
   config.tbody.innerHTML = "";
-  (pageRows.length ? pageRows : [{}]).forEach((row) => config.addRow(row));
-  renderingCreationPage = false;
-  state.renderedCount = pageRows.length ? pageRows.length : 1;
+
+  try {
+    renderEntries.forEach(
+      ({ row, sourceIndex }) => {
+        config.addRow(row);
+
+        const rowElement =
+          config.tbody.lastElementChild;
+
+        if (!rowElement) {
+          return;
+        }
+
+        if (
+          Number.isInteger(
+            sourceIndex,
+          )
+        ) {
+          rowElement.dataset
+            .creationSourceIndex =
+            String(sourceIndex);
+        } else {
+          delete rowElement.dataset
+            .creationSourceIndex;
+        }
+      },
+    );
+  } finally {
+    renderingCreationPage = false;
+  }
+
+  state.renderedSourceIndexes =
+    pageEntries.map(
+      ({ sourceIndex }) =>
+        sourceIndex,
+    );
+  state.renderedCount =
+    renderEntries.length;
 
   if (documentType === "splScrap") applySplScrapShipmentMode();
   updateTableScroll(config.tbody);
@@ -2523,6 +2868,7 @@ function initializeCreationPagination(documentType, rows) {
     rows: list,
     page: 1,
     renderedCount: 0,
+    renderedSourceIndexes: [],
   };
   renderCreationPage(documentType);
 }
@@ -2532,8 +2878,70 @@ function changeCreationPage(targetPage) {
   const state = fileCreationPageState[documentType];
   if (!state || !Array.isArray(state.rows)) return;
   persistVisibleCreationPage(documentType);
-  const totalPages = Math.max(1, Math.ceil(state.rows.length / FILE_CREATION_PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(getFilteredCreationEntries(documentType).length / FILE_CREATION_PAGE_SIZE),
+  );
   state.page = Math.min(Math.max(targetPage, 1), totalPages);
+  renderCreationPage(documentType);
+}
+
+function addCreationRowFromToolbar(
+  documentType,
+) {
+  const filter =
+    creationTableFilters[documentType];
+
+  if (
+    isCreationTableFilterActive(
+      documentType,
+    )
+  ) {
+    filter?.clear();
+  }
+
+  const state =
+    fileCreationPageState[documentType];
+
+  if (
+    state &&
+    Array.isArray(state.rows)
+  ) {
+    persistVisibleCreationPage(
+      documentType,
+    );
+
+    const lastPage = Math.max(
+      1,
+      Math.ceil(
+        state.rows.length /
+          FILE_CREATION_PAGE_SIZE,
+      ),
+    );
+
+    if (state.page !== lastPage) {
+      state.page = lastPage;
+      renderCreationPage(documentType);
+    }
+  }
+
+  addRowForDocumentType(documentType);
+}
+
+function handleCreationRowRemoval(
+  documentType,
+) {
+  const filter =
+    creationTableFilters[documentType];
+
+  if (filter) {
+    filter.apply();
+    return;
+  }
+
+  persistVisibleCreationPage(
+    documentType,
+  );
   renderCreationPage(documentType);
 }
 
@@ -2730,9 +3138,7 @@ function addRawMaterialRow(values = {}) {
   removeBtn.textContent = "Eliminar";
   removeBtn.addEventListener("click", () => {
     row.remove();
-    if (rmBody.children.length === 0) {
-      addRawMaterialRow();
-    }
+    handleCreationRowRemoval("rawMaterial");
   });
   actionsTd.appendChild(removeBtn);
   row.appendChild(actionsTd);
@@ -2765,9 +3171,10 @@ function buildBillOfMaterialsTable() {
   bmHead.appendChild(headerRow);
 
   bmBody.innerHTML = "";
-  for (let i = 0; i < 5; i++) {
-    addBillOfMaterialsRow();
-  }
+  initializeCreationPagination(
+    "billOfMaterials",
+    Array.from({ length: 5 }, () => ({})),
+  );
   updateTableScroll(bmBody);
 }
 
@@ -2869,9 +3276,7 @@ function addBillOfMaterialsRow(values = {}) {
   removeBtn.textContent = "Eliminar";
   removeBtn.addEventListener("click", () => {
     row.remove();
-    if (bmBody.children.length === 0) {
-      addBillOfMaterialsRow();
-    }
+    handleCreationRowRemoval("billOfMaterials");
   });
   actionsTd.appendChild(removeBtn);
   row.appendChild(actionsTd);
@@ -3255,9 +3660,10 @@ function buildSplScrapTable() {
   splHead.appendChild(headerRow);
 
   splBody.innerHTML = "";
-  for (let i = 0; i < 5; i++) {
-    addSplScrapRow();
-  }
+  initializeCreationPagination(
+    "splScrap",
+    Array.from({ length: 5 }, () => ({})),
+  );
   updateTableScroll(splBody);
 }
 
@@ -3429,9 +3835,7 @@ function addSplScrapRow(values = {}) {
   removeBtn.textContent = "Eliminar";
   removeBtn.addEventListener("click", () => {
     row.remove();
-    if (splBody.children.length === 0) {
-      addSplScrapRow();
-    }
+    handleCreationRowRemoval("splScrap");
   });
   actionsTd.appendChild(removeBtn);
   row.appendChild(actionsTd);
@@ -3489,19 +3893,27 @@ function showFormat(type) {
 }
 
 if (fpAddRowBtn) {
-  fpAddRowBtn.addEventListener("click", addFinishedProductRow);
+  fpAddRowBtn.addEventListener("click", () => {
+    addCreationRowFromToolbar("finishedProduct");
+  });
 }
 
 if (rmAddRowBtn) {
-  rmAddRowBtn.addEventListener("click", addRawMaterialRow);
+  rmAddRowBtn.addEventListener("click", () => {
+    addCreationRowFromToolbar("rawMaterial");
+  });
 }
 
 if (bmAddRowBtn) {
-  bmAddRowBtn.addEventListener("click", addBillOfMaterialsRow);
+  bmAddRowBtn.addEventListener("click", () => {
+    addCreationRowFromToolbar("billOfMaterials");
+  });
 }
 
 if (splAddRowBtn) {
-  splAddRowBtn.addEventListener("click", addSplScrapRow);
+  splAddRowBtn.addEventListener("click", () => {
+    addCreationRowFromToolbar("splScrap");
+  });
 }
 
 if (fileCreationFirstPage) {
@@ -3515,10 +3927,18 @@ if (fileCreationFirstPage) {
     changeCreationPage((state?.page || 1) + 1);
   });
   fileCreationLastPage.addEventListener("click", () => {
-    const state = fileCreationPageState[fileType?.value];
+    const documentType =
+      fileType?.value;
+    const totalRecords =
+      getFilteredCreationEntries(
+        documentType,
+      ).length;
     const totalPages = Math.max(
       1,
-      Math.ceil((state?.rows?.length || 0) / FILE_CREATION_PAGE_SIZE),
+      Math.ceil(
+        totalRecords /
+          FILE_CREATION_PAGE_SIZE,
+      ),
     );
     changeCreationPage(totalPages);
   });
@@ -4140,6 +4560,8 @@ async function loadFileForEdit(docId, docType) {
     renderErrorList([{ message: err.message || "Error al cargar archivo." }]);
   }
 }
+
+initializeCreationTableFilters();
 
 if (fileType) {
   fileType.addEventListener("change", async (e) => {
