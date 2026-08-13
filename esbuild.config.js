@@ -24,6 +24,7 @@ const commonBuildOptions = {
     `${srcdir}/js/master-files.js`,
     `${srcdir}/js/master-file-editor.js`,
     `${srcdir}/js/table-filter.js`,
+    `${srcdir}/js/packing-list-report.js`,
 
     `${srcdir}/css/main.css`,
     `${srcdir}/css/login.css`,
@@ -36,6 +37,7 @@ const commonBuildOptions = {
     `${srcdir}/css/master-files.css`,
     `${srcdir}/css/master-file-editor.css`,
     `${srcdir}/css/table-filter.css`,
+    `${srcdir}/css/packing-list-report.css`,
   ],
   outdir: outdir,
   // Ensure that .html files don't reference a full path to .js but just 'main.js' or similar
