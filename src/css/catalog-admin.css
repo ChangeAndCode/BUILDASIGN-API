@@ -4,6 +4,8 @@
 .catalog-card { background: #fff; border-radius: 10px; padding: 22px; box-shadow: 0 2px 10px rgba(0,0,0,.1); }
 .catalog-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .catalog-heading h2 { margin-bottom: 4px; }
+.catalog-heading-actions { display: flex; align-items: center; gap: 10px; }
+.catalog-heading-actions .button { margin: 0; }
 .catalog-heading p { margin-top: 0; color: #667085; }
 .catalog-table-scroll {
   width: 100%;

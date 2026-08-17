@@ -18,7 +18,7 @@ const buildCatalogWorkbook = async () => {
     catalogRepository.list("countries", { includeInactive: true }),
   ]);
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "DANA API Writing";
+  workbook.creator = "BUILDASIGN API";
   workbook.created = new Date();
 
   addSheet(workbook, "Unit of Measure", uom.map((entry) => ({

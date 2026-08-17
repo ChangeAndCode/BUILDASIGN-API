@@ -1,4 +1,5 @@
 const catalogService = require("../services/catalogService");
+const { buildCatalogWorkbook } = require("../services/catalogExportService");
 
 const getUserId = (req) => req.user?._id || req.user?.id;
 const handleError = (res, error) => {
@@ -8,10 +9,27 @@ const handleError = (res, error) => {
   });
 };
 
+const exportCatalogs = async (_req, res) => {
+  try {
+    const workbook = await buildCatalogWorkbook();
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="BUILDASIGN-Catalogs-${date}.xlsx"`);
+    return res.send(Buffer.from(workbook));
+  } catch (error) { return handleError(res, error); }
+};
+
 const listCatalog = async (req, res) => {
   try {
     const entries = await catalogService.list(req.params.type);
     return res.status(200).json(entries);
+  } catch (error) { return handleError(res, error); }
+};
+
+const listCatalogAudits = async (req, res) => {
+  try {
+    const audits = await catalogService.listAudits(req.params.type, req.query.limit);
+    return res.status(200).json(audits);
   } catch (error) { return handleError(res, error); }
 };
 
@@ -45,4 +63,4 @@ const deleteCatalogEntry = async (req, res) => {
   } catch (error) { return handleError(res, error); }
 };
 
-module.exports = { listCatalog, createCatalogEntry, updateCatalogEntry, updateCatalogStatus, deleteCatalogEntry };
+module.exports = { exportCatalogs, listCatalog, listCatalogAudits, createCatalogEntry, updateCatalogEntry, updateCatalogStatus, deleteCatalogEntry };

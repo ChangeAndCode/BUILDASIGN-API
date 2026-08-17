@@ -1,10 +1,34 @@
 const mongoose = require("mongoose");
 const catalogRepository = require("../repositories/catalogRepository");
+const catalogAuditRepository = require("../repositories/catalogAuditRepository");
 const uomCatalog = require("../data/uomCatalog");
 const countryCatalog = require("../data/countryCatalog");
 const { normalizeCatalogLookup, normalizeAliases } = require("../utils/catalogNormalization");
 
 const TYPES = new Set(["uom", "countries"]);
+const toAuditSnapshot = (entry) => {
+  if (!entry) return null;
+  const value = typeof entry.toObject === "function" ? entry.toObject() : entry;
+  return {
+    code: value.code,
+    description: value.description,
+    aliases: Array.isArray(value.aliases) ? value.aliases.slice() : [],
+    isActive: value.isActive,
+    ...(value.origin !== undefined ? { origin: value.origin } : {}),
+    ...(value.allowsDecimals !== undefined ? { allowsDecimals: value.allowsDecimals } : {}),
+  };
+};
+
+const recordAudit = ({ catalogType, entry, action, before, after, performedBy }) =>
+  catalogAuditRepository.create({
+    catalogType,
+    entryId: entry._id,
+    code: entry.code,
+    action,
+    before: toAuditSnapshot(before),
+    after: toAuditSnapshot(after),
+    performedBy,
+  });
 const ensureType = (type) => {
   if (!TYPES.has(type)) {
     const error = new Error("Tipo de catalogo no valido.");
@@ -110,6 +134,11 @@ const list = async (type) => {
   return catalogRepository.list(type, { includeInactive: true });
 };
 
+const listAudits = async (type, limit) => {
+  ensureType(type);
+  return catalogAuditRepository.list({ catalogType: type, limit });
+};
+
 const create = async (type, input, userId) => {
   const data = sanitize(type, input);
   const existing = await catalogRepository.findByCode(type, data.code);
@@ -120,6 +149,7 @@ const create = async (type, input, userId) => {
   }
   await assertNoLookupConflict(type, data);
   const created = await catalogRepository.create(type, { ...data, createdBy: userId, updatedBy: userId });
+  await recordAudit({ catalogType: type, entry: created, action: "created", before: null, after: created, performedBy: userId });
   await refreshCache();
   return created;
 };
@@ -134,6 +164,7 @@ const update = async (type, id, input, userId) => {
   const data = sanitize(type, { ...input, code: current.code });
   await assertNoLookupConflict(type, data, id);
   const updated = await catalogRepository.update(type, id, { ...data, code: current.code, updatedBy: userId });
+  await recordAudit({ catalogType: type, entry: updated, action: "updated", before: current, after: updated, performedBy: userId });
   await refreshCache();
   return updated;
 };
@@ -148,17 +179,19 @@ const setActive = async (type, id, isActive, userId) => {
     await assertNoLookupConflict(type, { code: current.code, description: current.description, aliases: current.aliases || [] }, id);
   }
   const updated = await catalogRepository.update(type, id, { isActive, updatedBy: userId });
+  await recordAudit({ catalogType: type, entry: updated, action: isActive ? "activated" : "deactivated", before: current, after: updated, performedBy: userId });
   await refreshCache();
   return updated;
 };
 
-const remove = async (type, id) => {
+const remove = async (type, id, userId) => {
   ensureType(type);
   if (!mongoose.Types.ObjectId.isValid(id)) { const error = new Error("ID de catalogo no valido."); error.status = 400; throw error; }
   const removed = await catalogRepository.deleteById(type, id);
   if (!removed) { const error = new Error("Valor de catalogo no encontrado."); error.status = 404; throw error; }
+  await recordAudit({ catalogType: type, entry: removed, action: "deleted", before: removed, after: null, performedBy: userId });
   await refreshCache();
   return removed;
 };
 
-module.exports = { initializeCatalogs, refreshCache, list, create, update, setActive, remove, sanitize };
+module.exports = { initializeCatalogs, refreshCache, list, listAudits, create, update, setActive, remove, sanitize };

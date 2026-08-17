@@ -163,10 +163,39 @@ $("confirmDeleteCatalogBtn").addEventListener("click", async () => {
   catch (error) { closeDelete(); showMessage(error.message, "error"); }
 });
 
+const exportCatalogs = async () => {
+  const button = $("exportCatalogBtn");
+  button.disabled = true;
+  hideMessage();
+  try {
+    const response = await fetch("/api/admin/catalogs/export");
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || "No se pudieron exportar los catálogos.");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = match?.[1] || "BUILDASIGN-Catalogs.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    showMessage("Catálogos exportados exitosamente.");
+  } catch (error) {
+    showMessage(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+};
+
 document.querySelectorAll(".catalog-tab").forEach((tab) => tab.addEventListener("click", async () => {
   document.querySelectorAll(".catalog-tab").forEach((item) => item.classList.toggle("active", item === tab));
   state.type = tab.dataset.type; await load();
 }));
+$("exportCatalogBtn").addEventListener("click", exportCatalogs);
 $("createCatalogBtn").addEventListener("click", () => openForm());
 $("cancelCatalogBtn").addEventListener("click", closeForm);
 $("cancelDeleteCatalogBtn").addEventListener("click", closeDelete);
