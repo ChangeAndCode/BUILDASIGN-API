@@ -23,6 +23,16 @@ const masterFileService = require(
   "../services/masterFileService",
 );
 const siteSftpService = require("../services/siteSftpService");
+const {
+  SFTP_IN_PROGRESS_STATUSES,
+  createSftpAvailableFilter,
+  createSftpOperationId,
+  createSftpOwnerFilter,
+  createSftpSendAcquisitionFilter,
+  getSftpLeaseExpiry,
+  isSftpOperationActive,
+  shouldDeletePreviousRemoteFile,
+} = require("../utils/sftpOperationLock");
 const { VALID_SITES } = require("../data/siteConfig");
 
 // Middleware de Multer (configúralo una vez)
@@ -98,19 +108,12 @@ const resolveDocumentSiteForWrite = (user, fallbackSite = "") => {
     : "";
 };
 
-const assertUserCanAccessConversionJob = (
-  job,
-  user,
-  automatedMessage = "Acceso denegado."
-) => {
-  if (!job.userId && job.isAutomated) {
-    if (!isAdminUser(user)) {
-      throw createHttpError(403, automatedMessage);
-    }
-    return;
-  }
-
+const assertUserCanAccessConversionJob = (job, user) => {
   if (isAdminUser(user)) return;
+
+  if (!job.userId) {
+    throw createHttpError(403, "Acceso denegado.");
+  }
 
   const userSite = getScopedUserSite(user);
   const jobSite = normalizeUserSite(job?.site);
@@ -122,7 +125,7 @@ const assertUserCanAccessConversionJob = (
     return;
   }
 
-  if (job.userId && job.userId.toString() !== user.id.toString()) {
+  if (job.userId.toString() !== user.id.toString()) {
     throw createHttpError(403, "Acceso denegado.");
   }
 };
@@ -218,7 +221,7 @@ const getAdminFileDocumentOrThrow = async ({
   }
 
   const model = requireAdminFileModelByType(type);
-  const query = model.findById(id);
+  const query = model.findById(id).select("+sftpDelivery.remotePath");
   const doc = lean ? await query.lean() : await query;
   if (!doc) {
     throw createHttpError(404, "Archivo no encontrado.");
@@ -228,8 +231,7 @@ const getAdminFileDocumentOrThrow = async ({
   return { model, doc };
 };
 
-const SFTP_IN_PROGRESS_STATUSES = ["pending", "sending"];
-const DEFAULT_SFTP_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_SFTP_LOCK_TIMEOUT_MS = 60 * 1000;
 const MAX_STORED_SFTP_ERROR_LENGTH = 500;
 
 const getSftpLockTimeoutMs = () => {
@@ -361,16 +363,11 @@ const getSftpDocumentSummary = async (model, id) => {
     : null;
 };
 
-const isSftpOperationInProgress = (document) => {
-  const delivery = toPlainObject(document?.sftpDelivery);
-  if (!SFTP_IN_PROGRESS_STATUSES.includes(delivery.status)) return false;
-
-  const lastAttemptAt = new Date(delivery.lastAttemptAt || 0).getTime();
-  return (
-    Number.isFinite(lastAttemptAt) &&
-    Date.now() - lastAttemptAt < getSftpLockTimeoutMs()
+const isSftpOperationInProgress = (document) =>
+  isSftpOperationActive(
+    toPlainObject(document?.sftpDelivery),
+    getSftpLockTimeoutMs(),
   );
-};
 
 const sanitizeStoredSftpError = (value) =>
   String(value || "No se pudo completar la operacion SFTP.")
@@ -417,18 +414,69 @@ const prepareAdminFileForSftp = async (document, documentType) => {
 const markSftpOperationFailed = async ({
   model,
   id,
+  operationId,
   message,
-}) => {
-  await model.updateOne(
-    { _id: id },
+}) =>
+  model.updateOne(
+    createSftpOwnerFilter({
+      id,
+      operationId,
+      statuses: SFTP_IN_PROGRESS_STATUSES,
+    }),
     {
       $set: {
         "sftpDelivery.status": "failed",
         "sftpDelivery.lastError": sanitizeStoredSftpError(message),
       },
+      $unset: {
+        "sftpDelivery.operationId": "",
+        "sftpDelivery.lockExpiresAt": "",
+      },
     },
     { timestamps: false },
   );
+
+const renewSftpOperationLease = async ({ model, id, operationId }) => {
+  const timeoutMs = getSftpLockTimeoutMs();
+  const result = await model.updateOne(
+    createSftpOwnerFilter({
+      id,
+      operationId,
+      statuses: SFTP_IN_PROGRESS_STATUSES,
+    }),
+    {
+      $set: {
+        "sftpDelivery.lockExpiresAt": getSftpLeaseExpiry(timeoutMs),
+        "sftpDelivery.lastAttemptAt": new Date(),
+      },
+    },
+    { timestamps: false },
+  );
+  return result.matchedCount === 1;
+};
+
+const startSftpLeaseHeartbeat = ({ model, id, operationId }) => {
+  const intervalMs = Math.max(
+    1000,
+    Math.min(15000, Math.floor(getSftpLockTimeoutMs() / 3)),
+  );
+  let renewalInProgress = false;
+  const timer = setInterval(async () => {
+    if (renewalInProgress) return;
+    renewalInProgress = true;
+    try {
+      await renewSftpOperationLease({ model, id, operationId });
+    } catch (error) {
+      console.warn("[SFTP] No se pudo renovar el lease del envio.", {
+        documentId: String(id),
+        code: error.code || "SFTP_LEASE_RENEWAL_FAILED",
+      });
+    } finally {
+      renewalInProgress = false;
+    }
+  }, intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
 };
 
 const isMasterFileSyncInProgress = (document) => {
@@ -740,7 +788,6 @@ const uploadAndConvertFile = async (req, res) => {
       outputFormat: outputFormat,
       conversionOptions: conversionOptions,
       status: "processing",
-      isAutomated: false,
     });
 
     const { convertedFilePath, errorReportPath, status } =
@@ -748,9 +795,7 @@ const uploadAndConvertFile = async (req, res) => {
         fileBuffer, // Use the buffer we already read
         originalname,
         outputFormat,
-        conversionOptions,
-        req.user.id,
-        false
+        conversionOptions
       );
 
     
@@ -809,11 +854,7 @@ const getConvertedFile = async (req, res) => {
 
     // Authorization checks
     try {
-      assertUserCanAccessConversionJob(
-        job,
-        req.user,
-        "Acceso denegado. Este es un archivo de conversión automatizado."
-      );
+      assertUserCanAccessConversionJob(job, req.user);
     } catch (accessError) {
       return res.status(accessError.statusCode || 403).json({
         message: accessError.message,
@@ -880,11 +921,7 @@ const getErrorReport = async (req, res) => {
 
     // Authorization checks
     try {
-      assertUserCanAccessConversionJob(
-        job,
-        req.user,
-        "Acceso denegado. Este es un reporte de errores automatizado."
-      );
+      assertUserCanAccessConversionJob(job, req.user);
     } catch (accessError) {
       return res.status(accessError.statusCode || 403).json({
         message: accessError.message,
@@ -1231,7 +1268,6 @@ const createManualFile = async (req, res) => {
         displayName: normalizedName || undefined,
       },
       status: "processing",
-      isAutomated: false,
     });
     
 
@@ -1468,6 +1504,8 @@ const sendAdminFileViaSftp = async (req, res) => {
   let model;
   let document;
   let targetSite = "";
+  let activeOperationId = "";
+  let stopLeaseHeartbeat = () => {};
 
   try {
     ({ model, doc: document } = await getAdminFileDocumentOrThrow({
@@ -1609,6 +1647,16 @@ const sendAdminFileViaSftp = async (req, res) => {
       });
     }
 
+    if (toPlainObject(document.sftpDelivery).status === "sent") {
+      return res.status(409).json({
+        message:
+          "El archivo ya fue enviado. Debes editarlo antes de generar un nuevo envio.",
+        code: "SFTP_ALREADY_SENT_NO_CHANGES",
+        dryRun: false,
+        document: await getSftpDocumentSummary(model, id),
+      });
+    }
+
     if (!Array.isArray(document.rows) || !document.rows.length) {
       return res.status(409).json({
         message: "No hay filas para enviar.",
@@ -1618,38 +1666,28 @@ const sendAdminFileViaSftp = async (req, res) => {
       });
     }
 
-    const staleBefore = new Date(Date.now() - getSftpLockTimeoutMs());
+    const lockTimeoutMs = getSftpLockTimeoutMs();
+    activeOperationId = createSftpOperationId();
+    const availableFilter = createSftpSendAcquisitionFilter({
+      id,
+      timeoutMs: lockTimeoutMs,
+      now: attemptDate,
+    });
     const lockedDocument = await model.findOneAndUpdate(
-      {
-        _id: id,
-        $or: [
-          {
-            "sftpDelivery.status": {
-              $nin: SFTP_IN_PROGRESS_STATUSES,
-            },
-          },
-          {
-            "sftpDelivery.lastAttemptAt": {
-              $exists: false,
-            },
-          },
-          {
-            "sftpDelivery.lastAttemptAt": {
-              $lt: staleBefore,
-            },
-          },
-        ],
-      },
+      availableFilter,
       {
         $set: {
           "sftpDelivery.status": "pending",
-          "sftpDelivery.site": targetSite,
           "sftpDelivery.lastAttemptAt": attemptDate,
           "sftpDelivery.lastAttemptBy": userId,
+          "sftpDelivery.operationId": activeOperationId,
+          "sftpDelivery.lockExpiresAt": getSftpLeaseExpiry(
+            lockTimeoutMs,
+            attemptDate,
+          ),
           "sftpDelivery.lastError": "",
           "sftpDelivery.sentAt": null,
           "sftpDelivery.remoteFileName": null,
-          "sftpDelivery.remotePath": null,
           ...(type === "splScrap"
             ? {}
             : {
@@ -1672,12 +1710,13 @@ const sendAdminFileViaSftp = async (req, res) => {
         },
       },
       {
-        new: true,
+        new: false,
         timestamps: false,
       },
-    );
+    ).select("+sftpDelivery.remotePath");
 
     if (!lockedDocument) {
+      activeOperationId = "";
       return res.status(409).json({
         message: "El archivo ya tiene un envio SFTP en proceso.",
         code: "SFTP_ALREADY_IN_PROGRESS",
@@ -1685,6 +1724,17 @@ const sendAdminFileViaSftp = async (req, res) => {
         document: await getSftpDocumentSummary(model, id),
       });
     }
+
+    stopLeaseHeartbeat = startSftpLeaseHeartbeat({
+      model,
+      id,
+      operationId: activeOperationId,
+    });
+
+    const previousDelivery = toPlainObject(lockedDocument.sftpDelivery);
+    const previousRemotePath = previousDelivery.remotePath || "";
+    const previousRemoteSite =
+      normalizeSftpSite(previousDelivery.site) || targetSite;
 
     let preparedFile;
     try {
@@ -1702,6 +1752,7 @@ const sendAdminFileViaSftp = async (req, res) => {
       await markSftpOperationFailed({
         model,
         id,
+        operationId: activeOperationId,
         message: publicMessage,
       });
 
@@ -1739,6 +1790,7 @@ const sendAdminFileViaSftp = async (req, res) => {
       await markSftpOperationFailed({
         model,
         id,
+        operationId: activeOperationId,
         message: publicMessage,
       });
 
@@ -1776,13 +1828,15 @@ const sendAdminFileViaSftp = async (req, res) => {
     }
 
     const transition = await model.updateOne(
-      {
-        _id: id,
-        "sftpDelivery.status": "pending",
-      },
+      createSftpOwnerFilter({
+        id,
+        operationId: activeOperationId,
+        statuses: ["pending"],
+      }),
       {
         $set: {
           "sftpDelivery.status": "sending",
+          "sftpDelivery.lockExpiresAt": getSftpLeaseExpiry(lockTimeoutMs),
         },
       },
       { timestamps: false },
@@ -1810,6 +1864,7 @@ const sendAdminFileViaSftp = async (req, res) => {
       await markSftpOperationFailed({
         model,
         id,
+        operationId: activeOperationId,
         message: publicError.message,
       });
 
@@ -1828,12 +1883,50 @@ const sendAdminFileViaSftp = async (req, res) => {
       });
     }
 
+    const previousRemoteMustBeRemoved = shouldDeletePreviousRemoteFile({
+      previousSite: previousRemoteSite,
+      previousPath: previousRemotePath,
+      nextSite: targetSite,
+      nextPath: uploadResult.remotePath,
+    });
+    if (previousRemoteMustBeRemoved) {
+      try {
+        await siteSftpService.deleteRemoteFileForSite({
+          site: previousRemoteSite,
+          remotePath: previousRemotePath,
+        });
+      } catch (error) {
+        const message =
+          "La nueva version fue transferida, pero no se pudo eliminar el archivo remoto anterior.";
+        await markSftpOperationFailed({
+          model,
+          id,
+          operationId: activeOperationId,
+          message,
+        });
+        console.error("[SFTP] No se elimino la version remota anterior.", {
+          documentId: String(id),
+          documentType: type,
+          site: previousRemoteSite,
+          code: error.code || "SFTP_PREVIOUS_REMOTE_DELETE_FAILED",
+        });
+        return res.status(502).json({
+          message,
+          code: "SFTP_PREVIOUS_REMOTE_DELETE_FAILED",
+          dryRun: false,
+          transferCompleted: true,
+          previousFileDeleted: false,
+          document: await getSftpDocumentSummary(model, id),
+        });
+      }
+    }
+
     const sentAt = new Date();
     const sentDelivery = {
       status: "sent",
       site: targetSite,
       attempts:
-        Number(toPlainObject(lockedDocument.sftpDelivery).attempts) || 1,
+        (Number(previousDelivery.attempts) || 0) + 1,
       lastAttemptAt: attemptDate,
       sentAt,
       lastAttemptBy: userId,
@@ -1841,9 +1934,14 @@ const sendAdminFileViaSftp = async (req, res) => {
       remoteFileName: uploadResult.remoteFileName,
     };
 
+    let sentStateUpdate;
     try {
-      await model.updateOne(
-        { _id: id },
+      sentStateUpdate = await model.updateOne(
+        createSftpOwnerFilter({
+          id,
+          operationId: activeOperationId,
+          statuses: ["sending"],
+        }),
         {
           $set: {
             "sftpDelivery.status": "sent",
@@ -1852,6 +1950,10 @@ const sendAdminFileViaSftp = async (req, res) => {
             "sftpDelivery.lastError": "",
             "sftpDelivery.remoteFileName": uploadResult.remoteFileName,
             "sftpDelivery.remotePath": uploadResult.remotePath,
+          },
+          $unset: {
+            "sftpDelivery.operationId": "",
+            "sftpDelivery.lockExpiresAt": "",
           },
         },
         { timestamps: false },
@@ -1873,6 +1975,24 @@ const sendAdminFileViaSftp = async (req, res) => {
         sftpDelivery: sentDelivery,
       });
     }
+
+    if (sentStateUpdate.matchedCount !== 1) {
+      console.error("[SFTP] El intento perdio la propiedad del lease.", {
+        documentId: String(id),
+        documentType: type,
+        site: targetSite,
+        code: "SFTP_OPERATION_SUPERSEDED",
+      });
+      return res.status(409).json({
+        message:
+          "El archivo fue transferido, pero otro intento reemplazo este envio. Revisa el estado antes de reintentar.",
+        code: "SFTP_OPERATION_SUPERSEDED",
+        dryRun: false,
+        transferCompleted: true,
+        document: await getSftpDocumentSummary(model, id),
+      });
+    }
+    activeOperationId = "";
 
     let masterFileUpdate;
     try {
@@ -1937,19 +2057,25 @@ const sendAdminFileViaSftp = async (req, res) => {
       });
     }
 
-    console.info("[SFTP] Archivo enviado.", {
-      documentId: String(id),
-      documentType: type,
+    console.info("[SFTP] Completed.", {
+      fileName:
+        normalizeAdminFileName(lockedDocument.adminFileName) ||
+        preparedFile.remoteFileName,
+      type: ADMIN_FILE_TYPE_CODES[type] || type,
       site: targetSite,
-      masterFileUpdate:
-        masterFileUpdate?.required
-          ? {
-              masterFileId: masterFileUpdate.masterFileId,
+      sendDate: sentDelivery.sentAt
+        ? new Date(sentDelivery.sentAt).toISOString()
+        : new Date().toISOString(),
+      user: getCopyUserLabel(req.user),
+      ...(masterFileUpdate?.required
+        ? {
+            masterFileUpdate: {
               added: masterFileUpdate.added,
               updated: masterFileUpdate.updated,
               unchanged: masterFileUpdate.unchanged,
-            }
-          : null,
+            },
+          }
+        : {}),
     });
 
     let responseDocument = null;
@@ -1977,6 +2103,18 @@ const sendAdminFileViaSftp = async (req, res) => {
       document: responseDocument,
     });
   } catch (error) {
+    if (model && id && activeOperationId) {
+      try {
+        await markSftpOperationFailed({
+          model,
+          id,
+          operationId: activeOperationId,
+          message: error.message,
+        });
+      } catch {
+        // The original request error remains primary.
+      }
+    }
     const statusCode = error.statusCode || 500;
     const publicMessage =
       statusCode < 500
@@ -1995,6 +2133,8 @@ const sendAdminFileViaSftp = async (req, res) => {
       code: error.code || "SFTP_REQUEST_FAILED",
       dryRun: isDryRun,
     });
+  } finally {
+    stopLeaseHeartbeat();
   }
 };
 
@@ -2254,7 +2394,7 @@ const updateAdminFileById = async (req, res) => {
   }
 
   try {
-    const { doc } = await getAdminFileDocumentOrThrow({
+    const { model, doc } = await getAdminFileDocumentOrThrow({
       id,
       type,
       user: req.user,
@@ -2310,48 +2450,74 @@ const updateAdminFileById = async (req, res) => {
       exclude: { type, id },
     });
 
-    doc.adminFileName = nextAdminFileName || doc.adminFileName;
-    doc.site = scopedSite;
-    doc.rows = Array.isArray(validationResult.transformedData.Sheet1)
+    const transformedRows = Array.isArray(
+      validationResult.transformedData.Sheet1,
+    )
       ? validationResult.transformedData.Sheet1
       : [];
-    doc.lastDownloadedName = generateAdminFileNomenclature(type, doc.rows);
-    doc.markModified("rows");
-    doc.updatedBy = req.user.id;
-    if (!doc.sftpDelivery) {
-      doc.sftpDelivery = {};
-    }
-    doc.sftpDelivery.status = "not_sent";
-    doc.sftpDelivery.site = scopedSite;
-    doc.sftpDelivery.sentAt = undefined;
-    doc.sftpDelivery.lastError = "";
-    doc.sftpDelivery.remoteFileName = undefined;
-    doc.sftpDelivery.remotePath = undefined;
-    if (!doc.masterFileSync) {
-      doc.masterFileSync = {};
-    }
-    doc.masterFileSync.status =
-      getDefaultMasterFileSyncStatus(type);
-    doc.masterFileSync.attempts = 0;
-    doc.masterFileSync.lastAttemptAt = undefined;
-    doc.masterFileSync.appliedAt = undefined;
-    doc.masterFileSync.lastAttemptBy = undefined;
-    doc.masterFileSync.lastError = "";
-    doc.masterFileSync.masterFileId = undefined;
-    doc.masterFileSync.masterFileName = "";
-    doc.masterFileSync.auditId = undefined;
-    doc.masterFileSync.summary = {
-      total: 0,
-      added: 0,
-      updated: 0,
-      unchanged: 0,
-    };
+    const updateFilter = createSftpAvailableFilter({
+      id,
+      timeoutMs: getSftpLockTimeoutMs(),
+    });
+    updateFilter["masterFileSync.status"] = { $ne: "applying" };
+    const updatedDocument = await model.findOneAndUpdate(
+      updateFilter,
+      {
+        $set: {
+          adminFileName: nextAdminFileName || doc.adminFileName,
+          site: scopedSite,
+          rows: transformedRows,
+          lastDownloadedName: generateAdminFileNomenclature(
+            type,
+            transformedRows,
+          ),
+          updatedBy: req.user.id,
+          "sftpDelivery.status": "not_sent",
+          "sftpDelivery.lastError": "",
+          "masterFileSync.status": getDefaultMasterFileSyncStatus(type),
+          "masterFileSync.attempts": 0,
+          "masterFileSync.lastError": "",
+          "masterFileSync.masterFileName": "",
+          "masterFileSync.summary": {
+            total: 0,
+            added: 0,
+            updated: 0,
+            unchanged: 0,
+          },
+        },
+        $unset: {
+          "sftpDelivery.sentAt": "",
+          "sftpDelivery.remoteFileName": "",
+          "sftpDelivery.operationId": "",
+          "sftpDelivery.lockExpiresAt": "",
+          "masterFileSync.lastAttemptAt": "",
+          "masterFileSync.appliedAt": "",
+          "masterFileSync.lastAttemptBy": "",
+          "masterFileSync.masterFileId": "",
+          "masterFileSync.auditId": "",
+        },
+      },
+      { new: true, runValidators: true },
+    );
 
-    await doc.save();
+    if (!updatedDocument) {
+      return res.status(409).json({
+        message:
+          "El archivo inicio otra operacion antes de guardar los cambios. Actualiza su estado e intenta nuevamente.",
+        code: "ADMIN_FILE_OPERATION_CONFLICT",
+      });
+    }
+
+    console.log("[Update] Completed.", {
+      fileName: nextAdminFileName || String(updatedDocument._id),
+      type: ADMIN_FILE_TYPE_CODES[type] || type,
+      updateDate: new Date().toISOString(),
+      user: getCopyUserLabel(req.user),
+    });
 
     return res.status(200).json({
       message: "Archivo actualizado.",
-      updatedAt: doc.updatedAt,
+      updatedAt: updatedDocument.updatedAt,
     });
   } catch (error) {
     console.error("Error al actualizar archivo admin:", error);
@@ -2390,7 +2556,29 @@ const deleteAdminFileById = async (req, res) => {
       });
     }
 
-    await model.deleteOne({ _id: id });
+    const deleteLogContext = {
+      fileName: normalizeAdminFileName(doc.adminFileName) || String(doc._id),
+      type: ADMIN_FILE_TYPE_CODES[type] || type,
+      deleteDate: new Date().toISOString(),
+      user: getCopyUserLabel(req.user),
+      documentId: String(doc._id),
+    };
+    console.log("[Delete] Deleting file.", deleteLogContext);
+
+    const deleteFilter = createSftpAvailableFilter({
+      id,
+      timeoutMs: getSftpLockTimeoutMs(),
+    });
+    deleteFilter["masterFileSync.status"] = { $ne: "applying" };
+    const deleteResult = await model.deleteOne(deleteFilter);
+    if (deleteResult.deletedCount !== 1) {
+      return res.status(409).json({
+        message:
+          "El archivo inicio otra operacion antes de poder eliminarse. Actualiza su estado e intenta nuevamente.",
+        code: "ADMIN_FILE_OPERATION_CONFLICT",
+      });
+    }
+    console.log("[Delete] Completed.", deleteLogContext);
     return res.status(200).json({ message: "Archivo eliminado." });
   } catch (error) {
     console.error("Error al borrar archivo admin:", error);
