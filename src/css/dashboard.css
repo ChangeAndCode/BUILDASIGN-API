@@ -225,3 +225,24 @@ p strong {
 .api-info code {
   font-family: 'Consolas', 'Monaco', monospace;
 }
+
+/* Keep dashboard actions from changing size and reflowing on hover. */
+.dashboard-nav a,
+.dashboard-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 190px;
+  min-height: 44px;
+  box-sizing: border-box;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.dashboard-nav a:hover,
+.dashboard-nav button:hover,
+.dashboard-nav .api-link:hover,
+.dashboard-nav .admin-link:hover,
+.dashboard-nav .logout-btn:hover {
+  font-weight: 600;
+}
