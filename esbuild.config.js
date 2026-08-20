@@ -24,6 +24,7 @@ const commonBuildOptions = {
     `${srcdir}/js/admin-dashboard.js`,
     `${srcdir}/js/master-files.js`,
     `${srcdir}/js/master-file-editor.js`,
+    `${srcdir}/js/packing-list-report.js`,
     `${srcdir}/js/table-filter.js`,
 
     `${srcdir}/css/main.css`,
@@ -37,6 +38,7 @@ const commonBuildOptions = {
     `${srcdir}/css/access-pending.css`,
     `${srcdir}/css/master-files.css`,
     `${srcdir}/css/master-file-editor.css`,
+    `${srcdir}/css/packing-list-report.css`,
     `${srcdir}/css/table-filter.css`,
   ],
   outdir: outdir,

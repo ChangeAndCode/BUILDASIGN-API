@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reporte mensual de Packing List</title>
+  <link rel="stylesheet" href="../css/main.css" />
+  <link rel="stylesheet" href="../css/packing-list-report.css" />
+</head>
+<body>
+  <main class="report-card">
+    <h1>Reporte mensual de Packing List</h1>
+    <p>Consolida Packing Lists enviados exitosamente al TCS.</p>
+
+    <form id="reportForm">
+      <div id="siteGroup" class="field hidden">
+        <label for="site">Sede</label>
+        <select id="site">
+          <option value="">Selecciona una sede</option>
+          <option value="local-01">Local 01</option>
+          <option value="local-02">Local 02</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="customer">Customer / Ship to</label>
+        <select id="customer" required disabled>
+          <option value="">Cargando customers...</option>
+        </select>
+      </div>
+
+      <div class="period">
+        <div class="field">
+          <label for="year">Año</label>
+          <select id="year" required disabled>
+            <option value="">Selecciona un customer</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="month">Mes</label>
+          <select id="month" required disabled>
+            <option value="">Selecciona un customer</option>
+          </select>
+        </div>
+      </div>
+
+      <p id="message" class="message" aria-live="polite"></p>
+      <button id="downloadButton" type="submit" disabled>
+        Descargar PDF
+      </button>
+    </form>
+
+    <nav class="report-nav">
+      <a href="/auth/dashboard">Volver al Dashboard</a>
+      <a href="/file-admin.html">Administrar Archivos</a>
+    </nav>
+  </main>
+  <script type="module" src="../js/packing-list-report.js"></script>
+</body>
+</html>

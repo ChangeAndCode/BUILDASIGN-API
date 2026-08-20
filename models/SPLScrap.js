@@ -551,6 +551,12 @@ splScrapMongooseSchema.add({
 });
 
 // Exponer la especificación para tu conversor
+splScrapMongooseSchema.index({
+  site: 1,
+  "sftpDelivery.status": 1,
+  "sftpDelivery.sentAt": -1,
+});
+
 splScrapMongooseSchema.statics.getSchemaSpec = () => splScrapSchemaSpec;
 
 module.exports = mongoose.model("SPLScrap", splScrapMongooseSchema);

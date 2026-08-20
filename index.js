@@ -23,6 +23,9 @@ const jobRoutes = require("./routes/jobRoutes");
 const masterFileRoutes = require(
   "./routes/masterFileRoutes"
 );
+const packingListReportRoutes = require(
+  "./routes/packingListReportRoutes"
+);
 // Import authentication/authorization middleware (assuming these exist from version 2)
 const {
   authenticateRequest,
@@ -114,6 +117,14 @@ app.get(
 );
 
 app.get(
+  "/packing-list-report.html",
+  authenticateRequest,
+  ensureApiAccess,
+  (req, res) =>
+    res.sendFile(path.join(__dirname, "dist", "packing-list-report.html")),
+);
+
+app.get(
   ["/master-files.html", "/master-file-editor.html"],
   authenticateRequest,
   ensureApiAccess,
@@ -169,6 +180,15 @@ app.get("/file-conversion", authenticateRequest, (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "file-conversion.html"));
 });
 
+app.get(
+  "/packing-list-report",
+  authenticateRequest,
+  ensureApiAccess,
+  (req, res) => {
+    res.sendFile(path.join(__dirname, "dist", "packing-list-report.html"));
+  },
+);
+
 // Admin Dashboard page - requires authentication AND admin role
 app.get("/admin-dashboard", authenticateRequest, ensureAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "admin-dashboard.html"));
@@ -201,6 +221,11 @@ app.use("/api/user", authenticateRequest, userRoutes);
 // API routes for administrator actions (e.g., managing users)
 // Applying authenticateRequest and ensureAdmin middleware as in version 2
 app.use("/api/admin", authenticateRequest, ensureAdmin, adminRoutes);
+
+app.use(
+  "/api/packing-list-reports",
+  packingListReportRoutes,
+);
 
 // administrate master files in admin dashboard
 app.use(
