@@ -1,10 +1,12 @@
-﻿document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", async () => {
   const typeSelect = document.getElementById("adminFileType");
   const panel = document.getElementById("adminFilesPanel");
   const tableBody = document.querySelector("#adminFilesTable tbody");
   const siteColumnHeader = document.getElementById("siteColumnHeader");
+  const catalogAdminButton = document.getElementById("catalogAdminButton");
   const deleteModal = document.getElementById("deleteModal");
   const deleteConfirmBtn = document.getElementById("deleteConfirmBtn");
+  const deleteModalMessage = document.getElementById("deleteModalMessage");
   const deleteCancelBtn = document.getElementById("deleteCancelBtn");
   const copyModal = document.getElementById("copyModal");
   const copySourceFileName = document.getElementById("copySourceFileName");
@@ -169,7 +171,7 @@
 
   const getSftpStatusKey = (doc) => {
     const status = String(
-      doc?.sftpStatus || doc?.sftpDelivery?.status || "not_sent",
+      doc?.sftpDelivery?.status || doc?.sftpStatus || "not_sent",
     )
       .trim()
       .toLowerCase();
@@ -221,8 +223,12 @@
   };
 
   const applySiteColumnVisibility = () => {
-    if (!siteColumnHeader) return;
-    siteColumnHeader.classList.toggle("hidden", !isAdminViewer);
+    if (siteColumnHeader) {
+      siteColumnHeader.classList.toggle("hidden", !isAdminViewer);
+    }
+    if (catalogAdminButton) {
+      catalogAdminButton.classList.toggle("hidden", !isAdminViewer);
+    }
   };
 
   const loadAdminStatus = async () => {
@@ -354,6 +360,10 @@
       deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="11" rx="2"/><path d="M8 9v5m4-5v5M5 6V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2"/></svg>`;
       deleteBtn.addEventListener("click", () => {
         pendingDeleteId = doc._id;
+        if (deleteModalMessage) {
+          deleteModalMessage.textContent = "Esta accion elimina el archivo, Desea continuar?";
+          deleteModalMessage.classList.remove("is-error");
+        }
         if (deleteModal) deleteModal.classList.remove("hidden");
       });
       actionsWrap.style.display = "flex";
@@ -361,10 +371,16 @@
       const sftpBtn = document.createElement("button");
       sftpBtn.type = "button";
       sftpBtn.className = "admin-action-btn sftp-btn";
-      sftpBtn.title = "Enviar por SFTP";
+      const sftpAlreadySent = getSftpStatusKey(doc) === "sent";
+      sftpBtn.disabled = sftpAlreadySent;
+      sftpBtn.title = sftpAlreadySent
+        ? "Edita el archivo para volver a enviarlo"
+        : "Enviar por SFTP";
       sftpBtn.setAttribute(
         "aria-label",
-        `Enviar ${getAdminDocName(doc)} por SFTP`,
+        sftpAlreadySent
+          ? `Archivo ${getAdminDocName(doc)} ya enviado; edita para reenviar`
+          : `Enviar ${getAdminDocName(doc)} por SFTP`,
       );
       sftpBtn.dataset.documentId = doc._id;
       sftpBtn.dataset.documentType = currentDocType;
@@ -713,7 +729,7 @@
       return "Reintentar";
     }
     if (status === "sent") {
-      return "Reenv\u00edo";
+      return "Ya enviado";
     }
     return "Env\u00edo";
   };
@@ -721,17 +737,19 @@
   const updateSftpControls = () => {
     const status = getSftpStatusKey(pendingSftpDoc);
     const isInProgress = status === "pending" || status === "sending";
+    const isAlreadySent = status === "sent";
     const hasSite = !!normalizeSite(sftpSiteSelect?.value);
 
     if (sftpSiteSelect) {
-      sftpSiteSelect.disabled = isSftpSubmitting || !isAdminViewer;
+      sftpSiteSelect.disabled =
+        isSftpSubmitting || isAlreadySent || !isAdminViewer;
     }
     if (sftpCancelBtn) {
       sftpCancelBtn.disabled = isSftpSubmitting;
     }
     if (sftpConfirmBtn) {
       sftpConfirmBtn.disabled =
-        isSftpSubmitting || isInProgress || !hasSite;
+        isSftpSubmitting || isInProgress || isAlreadySent || !hasSite;
       sftpConfirmBtn.textContent = isSftpSubmitting
         ? "Procesando..."
         : getSftpActionLabel();
@@ -789,8 +807,11 @@
     }
 
     const delivery = getSftpDelivery(doc);
+    const status = getSftpStatusKey(doc);
     const selectedSite = normalizeSite(
-      delivery.site || doc?.site || currentUserSite,
+      status === "not_sent"
+        ? doc?.site || currentUserSite || delivery.site
+        : delivery.site || doc?.site || currentUserSite,
     );
     if (sftpSiteSelect) {
       sftpSiteSelect.value = selectedSite;
@@ -850,6 +871,12 @@
     isSftpSubmitting = true;
     updateSftpControls();
 
+    const requestController = new AbortController();
+    const requestTimeout = window.setTimeout(
+      () => requestController.abort(),
+      60000,
+    );
+
     try {
       const response = await fetch(
         "/api/files/admin-files/" +
@@ -859,6 +886,7 @@
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: requestController.signal,
           body: JSON.stringify({
             site,
             dryRun: false,
@@ -870,7 +898,11 @@
       applySftpResponseToDocument(data);
 
       if (!response.ok) {
-        throw new Error(data.message || "No se pudo procesar el envio SFTP.");
+        const requestError = new Error(
+          data.message || "No se pudo procesar el envio SFTP.",
+        );
+        requestError.responseReceived = true;
+        throw requestError;
       }
 
       showSftpModalMessage(
@@ -879,10 +911,28 @@
         "success",
       );
     } catch (error) {
-      showSftpModalMessage(
-        error.message || "No se pudo procesar el envio SFTP.",
-      );
+      const errorMessage = error.name === "AbortError"
+        ? "El envio SFTP excedio el tiempo maximo permitido."
+        : error.message === "Failed to fetch"
+          ? "Se perdio la conexion con el servidor durante el envio SFTP."
+          : error.message || "No se pudo procesar el envio SFTP.";
+
+      if (pendingSftpDoc && !error.responseReceived) {
+        pendingSftpDoc.sftpDelivery = {
+          ...getSftpDelivery(pendingSftpDoc),
+          status: "failed",
+          lastError: errorMessage,
+        };
+        pendingSftpDoc.sftpStatus = "failed";
+        applySftpResponseToDocument({
+          sftpDelivery: pendingSftpDoc.sftpDelivery,
+          sftpStatus: "failed",
+        });
+      }
+
+      showSftpModalMessage(errorMessage);
     } finally {
+      window.clearTimeout(requestTimeout);
       isSftpSubmitting = false;
       updateSftpControls();
     }
@@ -1275,6 +1325,10 @@
 
   const loadUsers = async () => {
     if (usersLoaded) return;
+    if (!isAdminViewer) {
+      usersLoaded = true;
+      return;
+    }
     try {
       const response = await fetch("/api/admin/users");
       if (!response.ok) {
@@ -1430,11 +1484,12 @@
           method: "DELETE",
         },
       )
-        .then((response) => {
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
           if (!response.ok) {
-            throw new Error("No se pudo borrar el archivo.");
+            throw new Error(data.message || "No se pudo borrar el archivo.");
           }
-          return response.json();
+          return data;
         })
         .then(() => {
           if (deleteModal) deleteModal.classList.add("hidden");
@@ -1443,6 +1498,11 @@
         })
         .catch((error) => {
           console.error("Error deleting doc:", error);
+          if (deleteModalMessage) {
+            deleteModalMessage.textContent =
+              error.message || "No se pudo borrar el archivo.";
+            deleteModalMessage.classList.add("is-error");
+          }
         })
         .finally(() => {
           deleteConfirmBtn.disabled = false;

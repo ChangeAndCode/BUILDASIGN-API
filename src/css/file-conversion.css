@@ -90,6 +90,17 @@ body {
   background: #eab308 !important;
 }
 
+.sftp-btn:disabled,
+.sftp-btn:disabled:hover,
+.sftp-btn:disabled:focus {
+  color: #78716c;
+  background: #e7dfb4 !important;
+  cursor: not-allowed;
+  opacity: 0.72;
+  outline: none;
+  box-shadow: none;
+}
+
 #adminFilesTable td.sftp-status-cell {
   text-align: center;
 }
@@ -1424,4 +1435,10 @@ h2 {
 
 .master-enrichment-summary ul {
   margin: 0;
+}
+#deleteModalMessage.is-error {
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #fee2e2;
+  color: #b91c1c;
 }

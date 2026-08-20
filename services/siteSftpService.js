@@ -273,9 +273,11 @@ const isTransientConnectionError = (error) => {
 
 const terminateClient = (client) => {
   try {
-    client?.client?.end();
+    const connection = client?.client;
+    connection?.end();
+    connection?.destroy?.();
   } catch {
-    // Ending a stuck socket is best effort.
+    // Destroying a stuck socket is best effort.
   }
 };
 
