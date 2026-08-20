@@ -23,6 +23,7 @@ const masterFileService = require(
   "../services/masterFileService",
 );
 const siteSftpService = require("../services/siteSftpService");
+const catalogService = require("../services/catalogService");
 const {
   SFTP_IN_PROGRESS_STATUSES,
   createSftpAvailableFilter,
@@ -44,6 +45,49 @@ const ADMIN_FILE_MODELS = {
   rawMaterial: RawMaterial,
   billOfMaterials: BillOfMaterials,
   splScrap: SPLScrap,
+};
+
+const ADMIN_FILE_TYPE_CODES = {
+  finishedProduct: "FG",
+  rawMaterial: "RM",
+  billOfMaterials: "BOM",
+  splScrap: "PL",
+};
+
+const getHistoricalCatalogAllowances = async (rows = []) => {
+  const [inactiveUom, inactiveCountries] = await Promise.all([
+    catalogService.listInactive("uom"),
+    catalogService.listInactive("countries"),
+  ]);
+  const inactiveCodes = {
+    unitOfMeasure: new Set(
+      inactiveUom.map((entry) => String(entry.code).toUpperCase()),
+    ),
+    countryOfOrigin: new Set(
+      inactiveCountries.map((entry) => String(entry.code).toUpperCase()),
+    ),
+  };
+  const counts = { unitOfMeasure: {}, countryOfOrigin: {} };
+  const fields = {
+    unitOfMeasure: ["Unit Of Measure", "Unit of Measure", "Unit of measure"],
+    countryOfOrigin: ["Country of Origin", "Country of origin"],
+  };
+
+  rows.forEach((row) => {
+    Object.entries(fields).forEach(([catalogKey, names]) => {
+      const fieldName = names.find((name) =>
+        Object.prototype.hasOwnProperty.call(row || {}, name),
+      );
+      const code = String(fieldName ? row[fieldName] || "" : "")
+        .trim()
+        .toUpperCase();
+      if (code && inactiveCodes[catalogKey].has(code)) {
+        counts[catalogKey][code] = (counts[catalogKey][code] || 0) + 1;
+      }
+    });
+  });
+
+  return counts;
 };
 
 const VALID_ADMIN_FILE_TYPES = Object.keys(ADMIN_FILE_MODELS);
@@ -382,10 +426,12 @@ const prepareAdminFileForSftp = async (document, documentType) => {
     });
   }
 
+  const historicalCatalogAllowances =
+    await getHistoricalCatalogAllowances(rows);
   const result = await fileConversionService.processManualDataForConversion(
     rows,
     null,
-    { documentType },
+    { documentType, validationOptions: { historicalCatalogAllowances } },
   );
 
   if (result.status !== "completed" || !result.convertedFilePath) {
@@ -975,6 +1021,10 @@ const validateManualData = async (req, res) => {
 
 const getManualCatalogOptions = async (_req, res) => {
   try {
+    const [inactiveUom, inactiveCountries] = await Promise.all([
+      catalogService.listInactive("uom"),
+      catalogService.listInactive("countries"),
+    ]);
     const unitOfMeasure = getUOMOptions().map((option) => option.code);
     const countryOfOrigin = getCountryOptions();
     const countryNameToCode = getCountryNameToCode();
@@ -983,6 +1033,13 @@ const getManualCatalogOptions = async (_req, res) => {
       unitOfMeasure,
       countryOfOrigin,
       countryNameToCode,
+      inactiveUnitOfMeasure: inactiveUom.map(({ code, description }) => ({
+        code,
+        description,
+      })),
+      inactiveCountryOfOrigin: inactiveCountries.map(
+        ({ code, description }) => ({ code, description }),
+      ),
     });
   } catch (error) {
     console.error("Error al cargar catalogos manuales:", error);
@@ -1450,6 +1507,8 @@ const downloadAdminFileById = async (req, res) => {
         .json({ message: "No hay filas para exportar." });
     }
 
+    const historicalCatalogAllowances =
+      await getHistoricalCatalogAllowances(rowsToExport);
     const {
       convertedFilePath,
       status,
@@ -1457,7 +1516,7 @@ const downloadAdminFileById = async (req, res) => {
     } = await fileConversionService.processManualDataForConversion(
       rowsToExport,
       null,
-      { documentType: type }
+      { documentType: type, validationOptions: { historicalCatalogAllowances } },
     );
 
     if (status !== "completed" || !convertedFilePath) {
@@ -2414,11 +2473,13 @@ const updateAdminFileById = async (req, res) => {
       });
     }
 
-    const validationResult = await fileConversionService.validateManualRowsForDocument(
-      rows,
-      type,
-      { allowEmptyMandatoryFields: false }
-    );
+    const historicalCatalogAllowances =
+      await getHistoricalCatalogAllowances(doc.rows || []);
+    const validationResult =
+      await fileConversionService.validateManualRowsForDocument(rows, type, {
+        allowEmptyMandatoryFields: false,
+        historicalCatalogAllowances,
+      });
 
     if (validationResult.hasErrors) {
       return res.status(400).json({
