@@ -1,6 +1,7 @@
 // controllers/fileController.js
 const fileConversionService = require("../services/fileConversionService");
 const conversionJobRepository = require("../repositories/conversionJobRepository");
+const userRepository = require("../repositories/userRepository");
 const path = require("path");
 const fs = require("fs/promises");
 const mongoose = require("mongoose");
@@ -117,6 +118,22 @@ const requireAdminFileModelByType = (type) => {
 
 const normalizeAdminFileName = (value) =>
   typeof value === "string" ? value.trim() : "";
+
+const getCopyUserLabel = (user) =>
+  user?.displayName || user?.email || String(user?.id || user?._id || "unknown");
+
+const getCopyUserLabelById = async (userId) => {
+  const normalizedUserId = userId?._id || userId;
+  const fallback = String(normalizedUserId || "unknown");
+  if (!mongoose.Types.ObjectId.isValid(normalizedUserId)) return fallback;
+
+  try {
+    const user = await userRepository.findUserById(normalizedUserId);
+    return user ? getCopyUserLabel(user) : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 const VALID_USER_SITES = VALID_SITES;
 
@@ -1375,9 +1392,13 @@ const createManualFile = async (req, res) => {
         savedCount = result.savedDoc ? 1 : 0;
         savedDb = result.savedDb;
         savedCollection = result.savedCollection;
-        console.log(
-          `[${documentType}] Inserted ${savedCount} doc into ${savedDb}.${savedCollection}`
-        );
+        console.info("[Create] Completed.", {
+          fileName: resolvedAdminFileName,
+          nomenclature,
+          type: ADMIN_FILE_TYPE_CODES[documentType] || documentType,
+          creationDate: new Date().toISOString(),
+          user: getCopyUserLabel(req.user),
+        });
       }
     }
 
@@ -1541,7 +1562,15 @@ const downloadAdminFileById = async (req, res) => {
         if (!res.headersSent) {
           res.status(500).json({ message: "Error al descargar el archivo." });
         }
+        return;
       }
+      console.info("[Download] Completed.", {
+        fileName: normalizeAdminFileName(doc.adminFileName) || nomenclature,
+        nomenclature,
+        type: ADMIN_FILE_TYPE_CODES[type] || type,
+        downloadDate: new Date().toISOString(),
+        user: getCopyUserLabel(req.user),
+      });
     });
   } catch (error) {
     console.error("Error al descargar archivo admin:", error);
@@ -2120,6 +2149,7 @@ const sendAdminFileViaSftp = async (req, res) => {
       fileName:
         normalizeAdminFileName(lockedDocument.adminFileName) ||
         preparedFile.remoteFileName,
+      nomenclature: uploadResult.remoteFileName,
       type: ADMIN_FILE_TYPE_CODES[type] || type,
       site: targetSite,
       sendDate: sentDelivery.sentAt
@@ -2346,6 +2376,17 @@ const retryAdminFileMasterSync = async (req, res) => {
     const responseDocument =
       await getSftpDocumentSummary(model, id);
 
+    console.info("[MasterFile] Sync completed.", {
+      fileName: normalizeAdminFileName(doc.adminFileName) || "Archivo",
+      type: ADMIN_FILE_TYPE_CODES[type] || type,
+      user: getCopyUserLabel(req.user),
+      summary: {
+        added: masterFileUpdate.added,
+        updated: masterFileUpdate.updated,
+        unchanged: masterFileUpdate.unchanged,
+      },
+    });
+
     return res.status(200).json({
       message: `Archivo madre actualizado: ${masterFileUpdate.added} agregados, ${masterFileUpdate.updated} actualizados y ${masterFileUpdate.unchanged} sin cambios.`,
       masterFileUpdate,
@@ -2395,6 +2436,17 @@ const copyAdminFileById = async (req, res) => {
     });
     const targetSite = resolveDocumentSiteForWrite(req.user, doc.site);
 
+    const copyType = ADMIN_FILE_TYPE_CODES[type] || type;
+    const copyDate = new Date().toISOString();
+    const sourceCreator = await getCopyUserLabelById(doc.createdBy);
+    console.log("[Copy] Copying file.", {
+      sourceFileName:
+        normalizeAdminFileName(doc.adminFileName) || String(doc._id),
+      type: copyType,
+      copyDate,
+      user: sourceCreator,
+    });
+
     await assertAdminFileNameAvailable(normalizedName, {
       site: targetSite || undefined,
     });
@@ -2408,6 +2460,13 @@ const copyAdminFileById = async (req, res) => {
       site: targetSite || undefined,
       userId: req.user.id,
       rows: doc.rows,
+    });
+
+    console.log("[Copy] Completed.", {
+      copiedFileName: normalizedName,
+      type: copyType,
+      copyDate,
+      user: getCopyUserLabel(req.user),
     });
 
     return res.status(201).json({

@@ -10,6 +10,18 @@ const masterFileService = require(
   "../services/masterFileService"
 );
 
+const getUserLogName = (user) =>
+  String(user?.displayName || user?.email || "Usuario").trim();
+
+const getMasterFileLog = (masterFile, user, summary = undefined) => ({
+  fileName: String(
+    masterFile?.name || masterFile?.originalFileName || "Archivo madre",
+  ).trim(),
+  type: String(masterFile?.masterType || "").trim(),
+  user: getUserLogName(user),
+  ...(summary ? { summary } : {}),
+});
+
 const {
   convertXlsToXlsx,
 } = require(
@@ -500,6 +512,15 @@ const updateMasterFileFromEditor =
       const masterFile =
         result.masterFile;
 
+      console.info(
+        "[MasterFile] Updated.",
+        getMasterFileLog(masterFile, req.user, {
+          inserted: result.insertedRecordCount,
+          updated: result.updatedRecordCount,
+          deleted: result.deletedRecordCount,
+        }),
+      );
+
       return res.status(200).json({
         message:
           "Los cambios del archivo madre se guardaron correctamente.",
@@ -603,6 +624,11 @@ const downloadMasterFile = async (
       ),
     );
 
+    console.info("[MasterFile] Downloaded.", {
+      fileName: result.fileName,
+      user: getUserLogName(req.user),
+    });
+
     return res.send(
       result.buffer,
     );
@@ -657,6 +683,13 @@ const copyMasterFile = async (
 
     const masterFile =
       result.masterFile;
+
+    console.info(
+      "[MasterFile] Copied.",
+      getMasterFileLog(masterFile, req.user, {
+        copied: result.copiedRecordCount,
+      }),
+    );
 
     return res.status(201).json({
       message:
@@ -741,6 +774,11 @@ const deleteMasterFile = async (
             req.params.masterFileId,
           user: req.user,
         });
+
+    console.info("[MasterFile] Deleted.", {
+      fileName: result.name,
+      user: getUserLogName(req.user),
+    });
 
     return res.status(200).json({
       message:
@@ -847,6 +885,15 @@ const importMasterFile = async (
         });
     const masterFile =
       result.masterFile;
+
+    console.info(
+      "[MasterFile] Imported.",
+      getMasterFileLog(masterFile, req.user, {
+        inserted: result.insertedRecordCount,
+        warnings: Array.isArray(result.warnings) ? result.warnings.length : 0,
+      }),
+    );
+
     return res.status(201).json({
       message:
         "Archivo madre importado correctamente.",
